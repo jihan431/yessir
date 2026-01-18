@@ -1,0 +1,20 @@
+{
+  "TELEGRAM_BOT_TOKEN": "8452243063:AAFq-FDNoVw9NQhL-zrxaFZDxLx6kBC3Z9A",
+  "EMAIL_CONFIG": {
+    "service": "gmail",
+    "auth": {
+      "user": "bustinino280@gmail.com",
+      "pass": "ngjgwwyxoztcjcjk"
+    }
+  },
+  "SUPPORT_EMAIL": "support@support.whatsapp.com",
+  "OWNER_ID": "6726423168",
+  "COOLDOWN_TIME": 5000,
+  "ADDITIONAL_OWNERS": [
+    "7179899967",
+    "8436266596",
+    "8571641862"
+  ],
+  "GRUP_ONLY": false,
+  "MAINTENANCE": false
+}

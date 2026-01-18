@@ -1,0 +1,1477 @@
+/**
+ * ╔═══════════════════════════════════════════════════════════╗
+ * ║           FIXRED BOT - WhatsApp Appeal System             ║
+ * ║              Bot Banding WhatsApp via Email               ║
+ * ╚═══════════════════════════════════════════════════════════╝
+ */
+
+const TelegramBot = require('node-telegram-bot-api');
+const nodemailer = require('nodemailer');
+const fs = require('fs');
+const configManager = require('./config');
+
+let config = configManager.config;
+
+// ================== STYLING & DEBUG ==================
+const DEBUG = true;
+
+const style = {
+    reset: '\x1b[0m',
+    bright: '\x1b[1m',
+    dim: '\x1b[2m',
+    red: '\x1b[31m',
+    green: '\x1b[32m',
+    yellow: '\x1b[33m',
+    blue: '\x1b[34m',
+    magenta: '\x1b[35m',
+    cyan: '\x1b[36m',
+    white: '\x1b[37m',
+    bgRed: '\x1b[41m',
+    bgGreen: '\x1b[42m',
+    bgYellow: '\x1b[43m',
+    bgBlue: '\x1b[44m',
+};
+
+function getTimestamp() {
+    return new Date().toLocaleTimeString('id-ID', { hour12: false });
+}
+
+function log(type, message, data = null) {
+    const timestamp = `${style.dim}[${getTimestamp()}]${style.reset}`;
+    
+    switch(type) {
+        case 'info':
+            console.log(`${timestamp} ${style.cyan}ℹ${style.reset} ${message}`);
+            break;
+        case 'success':
+            console.log(`${timestamp} ${style.green}✓${style.reset} ${message}`);
+            break;
+        case 'error':
+            console.log(`${timestamp} ${style.red}✗${style.reset} ${message}`);
+            break;
+        case 'warn':
+            console.log(`${timestamp} ${style.yellow}⚠${style.reset} ${message}`);
+            break;
+        case 'debug':
+            if (DEBUG) {
+                console.log(`${timestamp} ${style.magenta}◈${style.reset} ${style.dim}${message}${style.reset}`);
+            }
+            break;
+        case 'email':
+            console.log(`${timestamp} ${style.blue}✉${style.reset} ${message}`);
+            break;
+    }
+    
+    if (data && DEBUG) {
+        console.log(`${style.dim}   └─ ${JSON.stringify(data)}${style.reset}`);
+    }
+}
+
+function showBanner() {
+    console.log(`
+${style.cyan}╔═══════════════════════════════════════════════════════════╗
+║                                                           ║
+║   ${style.bright}${style.white}███████╗██╗██╗  ██╗██████╗ ███████╗██████╗${style.cyan}          ║
+║   ${style.white}██╔════╝██║╚██╗██╔╝██╔══██╗██╔════╝██╔══██╗${style.cyan}         ║
+║   ${style.white}█████╗  ██║ ╚███╔╝ ██████╔╝█████╗  ██║  ██║${style.cyan}         ║
+║   ${style.white}██╔══╝  ██║ ██╔██╗ ██╔══██╗██╔══╝  ██║  ██║${style.cyan}         ║
+║   ${style.white}██║     ██║██╔╝ ██╗██║  ██║███████╗██████╔╝${style.cyan}         ║
+║   ${style.white}╚═╝     ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝╚═════╝${style.cyan}          ║
+║                                                           ║
+║           ${style.yellow}WhatsApp Appeal Bot System${style.cyan}                     ║
+║                    ${style.dim}@voidxsh1${style.reset}${style.cyan}                             ║
+║                                                           ║
+╚═══════════════════════════════════════════════════════════╝${style.reset}
+`);
+}
+
+// ================== BOT SETUP ==================
+const bot = new TelegramBot(config.TELEGRAM_BOT_TOKEN, { polling: true });
+
+const userCooldowns = new Map();
+const allUsers = new Map();
+const allChats = new Map();
+
+const stats = {
+    totalRequests: 0,
+    successfulSends: 0,
+    failedSends: 0,
+    startTime: Date.now()
+};
+
+// ===== SISTEM PREMIUM USER =====
+const premiumFile = './premium.json';
+let premiumUsers = [];
+
+function loadPremium() {
+    try {
+        if (fs.existsSync(premiumFile)) {
+            const raw = fs.readFileSync(premiumFile, 'utf8');
+            premiumUsers = raw ? JSON.parse(raw) : [];
+            log('debug', `Loaded ${premiumUsers.length} premium users`);
+        } else {
+            fs.writeFileSync(premiumFile, JSON.stringify([], null, 2));
+            premiumUsers = [];
+        }
+    } catch (e) {
+        log('error', `Gagal load premium.json: ${e.message}`);
+        premiumUsers = [];
+    }
+}
+
+function savePremium() {
+    try {
+        fs.writeFileSync(premiumFile, JSON.stringify(premiumUsers, null, 2));
+        log('debug', 'Premium data saved');
+    } catch (e) {
+        log('error', `Gagal menyimpan premium.json: ${e.message}`);
+    }
+}
+
+function isPremium(userId) {
+    const id = typeof userId === 'number' ? userId : parseInt(userId);
+    const user = premiumUsers.find(u => u.id === id);
+    if (!user) return false;
+    if (Date.now() > user.expired) {
+        premiumUsers = premiumUsers.filter(u => u.id !== id);
+        savePremium();
+        return false;
+    }
+    return true;
+}
+
+function addPremium(userId, days) {
+    const id = typeof userId === 'number' ? userId : parseInt(userId);
+    const ms = days * 24 * 60 * 60 * 1000;
+    const expired = Date.now() + ms;
+    const existing = premiumUsers.find(u => u.id === id);
+    if (existing) {
+        existing.expired = expired;
+    } else {
+        premiumUsers.push({ id: id, expired: expired });
+    }
+    savePremium();
+    log('info', `Premium added: ${id} for ${days} days`);
+    return expired;
+}
+
+function removePremium(userId) {
+    const id = typeof userId === 'number' ? userId : parseInt(userId);
+    const before = premiumUsers.length;
+    premiumUsers = premiumUsers.filter(u => u.id !== id);
+    if (premiumUsers.length !== before) {
+        savePremium();
+        log('info', `Premium removed: ${id}`);
+    }
+}
+
+// Load premium saat startup
+loadPremium();
+
+// ================== EMAIL ROTATION SYSTEM ==================
+const emailFile = './email.json';
+let emailList = [];
+const emailCooldowns = new Map(); // Map<email, timestamp>
+
+function loadEmails() {
+    try {
+        if (fs.existsSync(emailFile)) {
+            const raw = fs.readFileSync(emailFile, 'utf8');
+            emailList = JSON.parse(raw);
+            log('info', `Loaded ${emailList.length} emails from email.json`);
+        } else {
+            // Fallback to config if file doesn't exist
+            if (config.EMAIL_CONFIG && config.EMAIL_CONFIG.auth.user && config.EMAIL_CONFIG.auth.pass) {
+                emailList = [{ user: config.EMAIL_CONFIG.auth.user, pass: config.EMAIL_CONFIG.auth.pass }];
+                log('info', 'Loaded single email from config');
+            } else {
+                emailList = [];
+                log('warn', 'No emails found in email.json or config');
+            }
+        }
+    } catch (e) {
+        log('error', `Failed to load email.json: ${e.message}`);
+        emailList = [];
+    }
+}
+
+function saveEmails() {
+    try {
+        fs.writeFileSync(emailFile, JSON.stringify(emailList, null, 2));
+    } catch (e) {
+        log('error', `Failed to save email.json: ${e.message}`);
+    }
+}
+
+// Initial load
+loadEmails();
+
+function getAvailableEmail() {
+    const now = Date.now();
+    
+    // Filter emails that are NOT on cooldown
+    const available = emailList.filter(e => {
+        const cooldownEnd = emailCooldowns.get(e.user) || 0;
+        return now > cooldownEnd;
+    });
+
+    if (available.length === 0) return null;
+
+    // Pick random
+    const randomIndex = Math.floor(Math.random() * available.length);
+    return available[randomIndex];
+}
+
+async function testSingleEmail(emailCred) {
+    const startTime = Date.now();
+    try {
+        const transporter = nodemailer.createTransport({
+            service: 'gmail',
+            auth: {
+                user: emailCred.user,
+                pass: emailCred.pass
+            }
+        });
+        await transporter.verify();
+        const duration = Date.now() - startTime;
+        return { email: emailCred.user, success: true, duration };
+    } catch (error) {
+        const duration = Date.now() - startTime;
+        return { email: emailCred.user, success: false, error: error.message, duration };
+    }
+}
+
+async function testAllEmails() {
+    if (emailList.length === 0) {
+        return { results: [], total: 0, success: 0, failed: 0 };
+    }
+
+    // Test semua email secara paralel
+    const results = await Promise.all(emailList.map(e => testSingleEmail(e)));
+    
+    const success = results.filter(r => r.success).length;
+    const failed = results.filter(r => !r.success).length;
+    
+    return { results, total: emailList.length, success, failed };
+}
+
+async function sendAppealEmail(phoneNumber, userId) {
+    if (emailList.length === 0) {
+        log('error', 'Email list kosong');
+        return 'no_config';
+    }
+    
+    const emailCreds = getAvailableEmail();
+    
+    if (!emailCreds) {
+        log('warn', 'All emails are on cooldown');
+        return 'cooldown';
+    }
+
+    log('email', `Mengirim banding untuk ${phoneNumber} via ${emailCreds.user}...`);
+    log('debug', `Requested by user: ${userId}`);
+    
+    const startTime = Date.now();
+
+    try {
+        // Create fresh transporter for this specific email
+        const transporter = nodemailer.createTransport({
+            service: 'gmail',
+            auth: {
+                user: emailCreds.user,
+                pass: emailCreds.pass
+            }
+        });
+
+        const mailOptions = {
+            from: emailCreds.user,
+            to: config.SUPPORT_EMAIL,
+            subject: '',
+            text: phoneNumber
+        };
+
+        await transporter.sendMail(mailOptions);
+        
+        // Set cooldown for this email (1 jam)
+        emailCooldowns.set(emailCreds.user, Date.now() + 60 * 60 * 1000);
+        
+        const duration = Date.now() - startTime;
+        log('success', `Email terkirim dalam ${duration}ms (${emailCreds.user})`);
+        stats.successfulSends++;
+        return 'success';
+    } catch (error) {
+        const duration = Date.now() - startTime;
+        log('error', `Gagal kirim email via ${emailCreds.user}: ${error.message}`);
+        stats.failedSends++;
+        return 'error';
+    }
+}
+
+// ================== UTILITY FUNCTIONS ==================
+
+function isOwner(userId) {
+    return userId.toString() === config.OWNER_ID || 
+           config.ADDITIONAL_OWNERS.includes(userId.toString());
+}
+
+function formatTime(ms) {
+    const minutes = Math.floor(ms / 60000);
+    const seconds = Math.floor((ms % 60000) / 1000);
+    return { minutes, seconds };
+}
+
+function checkCooldown(userId) {
+    const userCooldown = userCooldowns.get(userId);
+    if (userCooldown && Date.now() < userCooldown) {
+        return { 
+            onCooldown: true, 
+            timeLeft: userCooldown - Date.now() 
+        };
+    }
+    return { onCooldown: false, timeLeft: 0 };
+}
+
+function setCooldown(userId) {
+    userCooldowns.set(userId, Date.now() + config.COOLDOWN_TIME);
+}
+
+function isGroupChat(chatType) {
+    return chatType === 'group' || chatType === 'supergroup';
+}
+
+function canUseBot(chatType) {
+    if (config.MAINTENANCE) return false;
+    if (config.GRUP_ONLY && !isGroupChat(chatType)) return false;
+    return true;
+}
+
+function getUptime() {
+    const ms = Date.now() - stats.startTime;
+    const seconds = Math.floor(ms / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+    
+    if (hours > 0) return `${hours}h ${minutes % 60}m`;
+    if (minutes > 0) return `${minutes}m ${seconds % 60}s`;
+    return `${seconds}s`;
+}
+
+async function broadcastMessage(message) {
+    let sent = 0;
+    let failed = 0;
+    const total = allChats.size;
+
+    for (const [chatId, chatData] of allChats) {
+        try {
+            await bot.sendMessage(chatId, message, { parse_mode: 'HTML' });
+            sent++;
+        } catch (error) {
+            failed++;
+        }
+    }
+
+    return { sent, failed, total };
+}
+
+// ================== BOT COMMANDS ==================
+
+bot.onText(/\/start/, (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+    const userName = msg.from.first_name || 'User';
+    const chatType = msg.chat.type;
+
+    log('info', `Command /start dari ${msg.from.username || userId}`);
+
+    allUsers.set(userId, {
+        name: userName,
+        username: msg.from.username || 'N/A',
+        firstSeen: new Date()
+    });
+
+    allChats.set(chatId, {
+        type: chatType,
+        title: msg.chat.title || 'Private Chat',
+        lastActive: new Date()
+    });
+
+    if (config.MAINTENANCE) {
+        return bot.sendMessage(chatId, 
+            '🔧 <b>BOT SEDANG DALAM MAINTENANCE</b>\n\nMohon maaf, bot sedang dalam perbaikan.',
+            { parse_mode: 'HTML' }
+        );
+    }
+
+    if (config.GRUP_ONLY && !isGroupChat(chatType)) {
+        return bot.sendMessage(chatId, 
+            '🚫 <b>BOT HANYA BISA DIGUNAKAN DI GRUP</b>',
+            { parse_mode: 'HTML' }
+        );
+    }
+
+    const welcomeText = `
+━━━━━━━━━━━━━━━━━━━━
+     🔧 <b>FIXRED BOT</b>
+━━━━━━━━━━━━━━━━━━━━
+
+Halo, <b>${userName}</b>! 👋
+
+📝 <b>Cara Pakai</b>
+<code>/fixred +628123456789</code>
+
+⚠️ <b>Format Nomor</b>
+• Awali dengan <code>+62</code>
+• Hanya angka, tanpa spasi
+
+📌 <b>Menu</b>
+• /fixred — Kirim banding
+• /stats — Statistik bot
+• /help — Panduan lengkap
+• /premium — Cek status${isOwner(userId) ? '\n• /owner — Menu owner' : ''}
+
+🔗 <b>@voidxsh1</b>
+    `;
+
+    bot.sendMessage(chatId, welcomeText, {
+        parse_mode: 'HTML',
+        reply_markup: {
+            keyboard: [
+                ['� /fixred', '�📊 /stats'],
+                ['❓ /help', '⭐ /premium'],
+                ...(isOwner(userId) ? [['👑 /owner']] : [])
+            ],
+            resize_keyboard: true
+        }
+    });
+});
+
+bot.onText(/\/help/, (msg) => {
+    const chatId = msg.chat.id;
+    log('info', `Command /help dari ${msg.from.username || msg.from.id}`);
+
+    const helpText = `
+━━━━━━━━━━━━━━━━━━━━
+     📖 <b>PANDUAN BOT</b>
+━━━━━━━━━━━━━━━━━━━━
+
+🔧 <b>Command Utama</b>
+
+<b>/fixred [nomor]</b>
+Kirim banding WhatsApp
+Ex: <code>/fixred +628123456789</code>
+
+<b>/stats</b> — Statistik bot
+<b>/premium</b> — Cek status premium
+
+🔐 <b>Owner Only</b>
+• /testemail — Test email
+• /addgmail — Ubah Gmail
+• /addapp — Ubah App Password
+
+⚙️ <b>Info</b>
+• Cooldown: ${config.COOLDOWN_TIME / 1000}s
+• Target: ${config.SUPPORT_EMAIL}
+
+🔗 <b>@voidxsh1</b>
+    `;
+
+    bot.sendMessage(chatId, helpText, { parse_mode: 'HTML' });
+});
+
+bot.onText(/\/stats/, (msg) => {
+    const chatId = msg.chat.id;
+    log('info', `Command /stats dari ${msg.from.username || msg.from.id}`);
+    
+    const successRate = stats.totalRequests > 0 
+        ? ((stats.successfulSends / stats.totalRequests) * 100).toFixed(1)
+        : '0';
+
+    const statusMessage = `
+━━━━━━━━━━━━━━━━━━━━
+    📊 <b>STATISTIK BOT</b>
+━━━━━━━━━━━━━━━━━━━━
+
+⏱ <b>Uptime:</b> ${getUptime()}
+
+📨 <b>Request</b>
+• Total: ${stats.totalRequests}
+• Sukses: ${stats.successfulSends}
+• Gagal: ${stats.failedSends}
+• Rate: ${successRate}%
+
+👥 <b>Users</b>
+• Total: ${allUsers.size}
+• Chats: ${allChats.size}
+• Premium: ${premiumUsers.length}
+
+⚡ <b>Status</b>
+• Email: ${emailList.length > 0 ? '🟢 OK' : '🔴 Error'}
+• Mode: ${config.GRUP_ONLY ? '🔒 Grup' : '🌐 Public'}
+• Bot: ${config.MAINTENANCE ? '🔧 Maint' : '🟢 Aktif'}
+
+🔗 <b>@voidxsh1</b>
+    `;
+
+    bot.sendMessage(chatId, statusMessage, { parse_mode: 'HTML' });
+});
+
+bot.onText(/\/menu/, (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+    const chatType = msg.chat.type;
+
+    if (!canUseBot(chatType)) {
+        if (config.MAINTENANCE) {
+            return bot.sendMessage(chatId, '🔧 <b>BOT SEDANG MAINTENANCE</b>', { parse_mode: 'HTML' });
+        }
+        if (config.GRUP_ONLY) {
+            return bot.sendMessage(chatId, '🚫 <b>BOT HANYA UNTUK GRUP</b>', { parse_mode: 'HTML' });
+        }
+    }
+
+    const menuText = `
+━━━━━━━━━━━━━━━━━━━━
+     🚀 <b>MENU UTAMA</b>
+━━━━━━━━━━━━━━━━━━━━
+
+📋 <b>Fitur</b>
+• /fixred — Ajukan banding
+• /stats — Statistik bot
+• /premium — Status premium
+• /help — Panduan${isOwner(userId) ? '\n• /owner — Panel owner' : ''}
+
+📱 <b>Status</b>
+• Mode: ${config.GRUP_ONLY ? '🔒 Grup Only' : '🌐 Public'}
+• Bot: ${config.MAINTENANCE ? '🔧 Maintenance' : '🟢 Aktif'}
+• Email: ${emailList.length > 0 ? '🟢 OK' : '🔴 Error'}
+
+📝 <b>Quick Start</b>
+<code>/fixred +628xxx</code>
+
+🔗 <b>@voidxsh1</b>
+    `;
+
+    bot.sendMessage(chatId, menuText, { parse_mode: 'HTML' });
+});
+
+// ================== FIXRED COMMAND ==================
+
+bot.onText(/\/fixred(?:@\w+)?(?:\s+(.+))?/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+    const userName = msg.from.username || msg.from.first_name;
+    const chatType = msg.chat.type;
+    const phoneNumber = match[1] ? match[1].trim() : null;
+
+    stats.totalRequests++;
+    log('info', `Command /fixred dari @${userName} (${userId})`);
+    log('debug', `Args: "${phoneNumber}"`);
+
+    // Cek premium/owner
+    if (!isPremium(userId) && !isOwner(userId)) {
+        log('debug', `User ${userId} bukan premium`);
+        return bot.sendMessage(chatId,
+            '❌ <b>Akses Ditolak!</b>\n\nFitur ini khusus user premium.\nHubungi owner untuk upgrade.',
+            { parse_mode: 'HTML' }
+        );
+    }
+
+    if (!canUseBot(chatType)) {
+        if (config.MAINTENANCE) {
+            return bot.sendMessage(chatId, '🔧 <b>BOT SEDANG MAINTENANCE</b>', { parse_mode: 'HTML' });
+        }
+        if (config.GRUP_ONLY) {
+            return bot.sendMessage(chatId, '🚫 <b>BOT HANYA UNTUK GRUP</b>', { parse_mode: 'HTML' });
+        }
+    }
+
+    // Cek email configuration
+    if (emailList.length === 0) {
+        log('warn', 'Email tidak terkonfigurasi');
+        return bot.sendMessage(chatId,
+            '❌ <b>EMAIL BELUM DIKONFIGURASI!</b>\n\n' +
+            'Owner bot belum mengkonfigurasi email.\n' +
+            'Silakan hubungi owner: @voidxsh1',
+            { parse_mode: 'HTML' }
+        );
+    }
+
+    // Cek format nomor
+    if (!phoneNumber) {
+        return bot.sendMessage(chatId,
+`❌ <b>Format salah!</b>
+
+📝 <b>Penggunaan yang benar:</b>
+<code>/fixred +628123456789</code>
+
+⚠️ Pastikan nomor dimulai dengan +62`,
+            { parse_mode: 'HTML' }
+        );
+    }
+
+    const phoneRegex = /^\+\d{10,15}$/;
+    if (!phoneRegex.test(phoneNumber)) {
+        log('debug', `Format nomor tidak valid: ${phoneNumber}`);
+        return bot.sendMessage(chatId,
+`❌ <b>Format nomor tidak valid!</b>
+
+✅ <b>Contoh yang benar:</b>
+<code>/fixred +6281234567890</code>
+
+⚠️ <b>Pastikan:</b>
+• Dimulai dengan +
+• Hanya berisi angka
+• 10-15 digit`,
+            { parse_mode: 'HTML' }
+        );
+    }
+
+    // Cek cooldown (kecuali owner)
+    if (!isOwner(userId)) {
+        const cooldown = checkCooldown(userId);
+        if (cooldown.onCooldown) {
+            const time = formatTime(cooldown.timeLeft);
+            log('debug', `User ${userId} dalam cooldown`);
+            return bot.sendMessage(chatId, 
+                `⏰ <b>Cooldown!</b>\n\nTunggu ${time.minutes}m ${time.seconds}s lagi.`, 
+                { parse_mode: 'HTML' }
+            );
+        }
+    }
+
+    // Kirim email
+    const userMention = msg.from.username ? `@${msg.from.username}` : msg.from.first_name;
+    const loadingMsg = await bot.sendMessage(chatId, 
+        `⏳ ${userMention}, memproses banding untuk <code>${phoneNumber}</code>...`,
+        { parse_mode: 'HTML', reply_to_message_id: msg.message_id }
+    );
+
+    try {
+        const result = await sendAppealEmail(phoneNumber, userId);
+
+        if (result === 'success') {
+            setCooldown(userId);
+            const timeStr = new Date().toLocaleTimeString('id-ID');
+            
+            bot.editMessageText(
+`━━━━━━━━━━━━━━━━━━━━
+    ✅ <b>TERKIRIM!</b>
+━━━━━━━━━━━━━━━━━━━━
+
+📋 <b>Detail</b>
+• User: ${userMention}
+• Nomor: <code>${phoneNumber}</code>
+• Waktu: ${timeStr}
+• Tujuan: WA Support
+
+💡 <i>Tunggu 1-2 menit, cek WA (buat bonglex ini ga eror ya emng email limit kentod)</i>`,
+                { chat_id: chatId, message_id: loadingMsg.message_id, parse_mode: 'HTML' }
+            );
+        } else if (result === 'cooldown') {
+            bot.editMessageText(
+`━━━━━━━━━━━━━━━━━━━━
+    ⏳ <b>ANTRIAN PENUH</b>
+━━━━━━━━━━━━━━━━━━━━
+
+⚠️ Semua email sedang cooldown.
+Mohon tunggu beberapa saat sebelum mencoba lagi.`,
+                { chat_id: chatId, message_id: loadingMsg.message_id, parse_mode: 'HTML' }
+            );
+        } else if (result === 'no_config') {
+             bot.editMessageText(
+`❌ <b>CONFIG ERROR</b>
+Hubungi admin: Email list kosong.`,
+                { chat_id: chatId, message_id: loadingMsg.message_id, parse_mode: 'HTML' }
+            );
+        } else {
+            bot.editMessageText(
+`━━━━━━━━━━━━━━━━━━━━
+       ❌ <b>GAGAL!</b>
+━━━━━━━━━━━━━━━━━━━━
+
+ Nomor: <code>${phoneNumber}</code>
+
+💡 <i>Coba lagi nanti</i>`,
+                { chat_id: chatId, message_id: loadingMsg.message_id, parse_mode: 'HTML' }
+            );
+        }
+    } catch (error) {
+        log('error', `Error pada fixred: ${error.message}`);
+        bot.editMessageText(
+`━━━━━━━━━━━━━━━━━━━━
+       ❌ <b>ERROR</b>
+━━━━━━━━━━━━━━━━━━━━
+
+💡 <i>Kesalahan sistem</i>`,
+            { chat_id: chatId, message_id: loadingMsg.message_id, parse_mode: 'HTML' }
+        );
+    }
+});
+
+// ================== PREMIUM COMMANDS ==================
+
+bot.onText(/\/premium$/, (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+
+    if (isOwner(userId)) {
+        return bot.sendMessage(chatId, '👑 Kamu adalah <b>Owner</b>.', { parse_mode: 'HTML' });
+    }
+
+    const id = userId;
+    const entry = premiumUsers.find(u => u.id === id);
+    if (!entry) {
+        return bot.sendMessage(chatId, '🚫 Kamu <b>bukan user premium</b>.', { parse_mode: 'HTML' });
+    }
+
+    if (Date.now() > entry.expired) {
+        removePremium(id);
+        return bot.sendMessage(chatId, '🚫 Status premium kamu sudah <b>kedaluwarsa</b>.', { parse_mode: 'HTML' });
+    }
+
+    const remaining = entry.expired - Date.now();
+    const daysLeft = Math.ceil(remaining / (1000 * 60 * 60 * 24));
+    const expDate = new Date(entry.expired).toLocaleString('id-ID');
+
+    bot.sendMessage(chatId, 
+`━━━━━━━━━━━━━━━━━━━━
+  ⭐ <b>STATUS PREMIUM</b>
+━━━━━━━━━━━━━━━━━━━━
+
+📋 <b>Info</b>
+• ID: <code>${userId}</code>
+• Expired: ${expDate}
+• Sisa: <b>${daysLeft} hari</b>
+
+✅ <i>Status Aktif</i>`,
+        { parse_mode: 'HTML' }
+    );
+});
+
+// ================== OWNER COMMANDS ==================
+
+bot.onText(/\/owner/, (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+
+    if (!isOwner(userId)) {
+        return bot.sendMessage(chatId, '❌ <b>AKSES DITOLAK!</b>', { parse_mode: 'HTML' });
+    }
+
+    log('info', `Command /owner dari ${msg.from.username || userId}`);
+
+    const ownerMenu = `
+━━━━━━━━━━━━━━━━━━━━
+     👑 <b>OWNER PANEL</b>
+━━━━━━━━━━━━━━━━━━━━
+
+📧 <b>Email Rotasi</b>
+• /addemail — Tambah email
+• /delemail — Hapus email
+• /listemails — Lihat list
+• /testemail — Test koneksi
+
+⭐ <b>Premium</b>
+• /addpremium — Tambah user
+• /delpremium — Hapus user
+• /listpremium — Lihat list
+
+👥 <b>Owner Management</b>
+• /addowner — Tambah owner
+• /delowner — Hapus owner
+• /listowner — Lihat list owner
+
+⚙️ <b>Settings</b>
+• /grubonly on/off
+• /maintanceon
+• /maintanceoff
+• /broadcast [msg]
+
+📱 <b>Status</b>
+• Mode: ${config.GRUP_ONLY ? '🔒 Grup' : '🌐 Public'}
+• Bot: ${config.MAINTENANCE ? '🔧 Maint' : '🟢 Normal'}
+• Email: ${emailList.length > 0 ? `🟢 ${emailList.length} email` : '🔴 Error'}
+
+🔗 <b>@voidxsh1</b>
+    `;
+
+    const keyboard = [
+        ['➕ /addemail', '➖ /delemail'],
+        ['📋 /listemails', '🧪 /testemail'],
+        ['➕ /addpremium', '➖ /delpremium'],
+        ['📋 /listpremium', '📊 /stats'],
+        ['🔧 /maintanceon', '✅ /maintanceoff'],
+        ['📢 /broadcast', '🏠 /menu']
+    ];
+
+    // Tambah keyboard owner management
+    keyboard.splice(3, 0, ['👑 /addowner', '❌ /delowner', '📋 /listowner']);
+
+    bot.sendMessage(chatId, ownerMenu, {
+        parse_mode: 'HTML',
+        reply_markup: {
+            keyboard: keyboard,
+            resize_keyboard: true
+        }
+    });
+});
+
+bot.onText(/\/testemail/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+    if (!isOwner(userId)) return bot.sendMessage(chatId, '❌ Khusus Owner!');
+
+    log('info', 'Owner menjalankan /testemail');
+
+    if (emailList.length === 0) {
+        return bot.sendMessage(chatId,
+            '❌ <b>EMAIL BELUM DIKONFIGURASI!</b>\n\n' +
+            'Gunakan /addemail untuk menambah email.',
+            { parse_mode: 'HTML' }
+        );
+    }
+
+    const testingMsg = await bot.sendMessage(chatId, `⏳ Testing ${emailList.length} email...`);
+
+    const startTime = Date.now();
+    const testResult = await testAllEmails();
+    const totalDuration = Date.now() - startTime;
+
+    // Format hasil per email
+    const resultList = testResult.results.map((r, i) => {
+        const status = r.success ? '🟢' : '🔴';
+        const time = r.success ? `${r.duration}ms` : 'FAIL';
+        return `${i + 1}. ${status} <code>${r.email}</code> (${time})`;
+    }).join('\n');
+
+    // Log results
+    testResult.results.forEach(r => {
+        if (r.success) {
+            log('success', `Email test berhasil: ${r.email} (${r.duration}ms)`);
+        } else {
+            log('error', `Email test gagal: ${r.email} - ${r.error}`);
+        }
+    });
+
+    bot.editMessageText(
+`🧪 <b>EMAIL TEST RESULTS</b>
+━━━━━━━━━━━━━━━━━━━━━
+
+${resultList}
+
+━━━━━━━━━━━━━━━━━━━━━
+📊 Total: ${testResult.total}
+✅ Success: ${testResult.success}
+❌ Failed: ${testResult.failed}
+⏱ Time: ${totalDuration}ms`,
+        { chat_id: chatId, message_id: testingMsg.message_id, parse_mode: 'HTML' }
+    );
+});
+
+bot.onText(/\/addgmail(?:\s+(.+))?/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+    if (!isOwner(userId)) return bot.sendMessage(chatId, '❌ Khusus Owner!');
+
+    const newEmail = match[1] ? match[1].trim() : null;
+
+    if (!newEmail) {
+        return bot.sendMessage(chatId, 
+            '❌ <b>Format:</b> <code>/addgmail email@gmail.com</code>', 
+            { parse_mode: 'HTML' }
+        );
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(newEmail)) {
+        return bot.sendMessage(chatId, '❌ Format email salah!', { parse_mode: 'HTML' });
+    }
+
+    log('info', `Owner mengubah email ke: ${newEmail}`);
+
+    const success = configManager.updateEmailConfig(newEmail, config.EMAIL_CONFIG.auth.pass);
+
+    if (success) {
+        config = configManager.config;
+        initializeEmail();
+
+        bot.sendMessage(chatId,
+`✅ <b>Email Berhasil Diubah!</b>
+
+📧 Email: <code>${newEmail}</code>
+🔄 Status: ${emailList.length > 0 ? '🟢 Connected' : '🔴 Error'}
+
+⚠️ <b>Langkah selanjutnya:</b>
+Gunakan /addapp untuk set App Password
+
+Contoh: <code>/addapp xxxx xxxx xxxx xxxx</code>`,
+            { parse_mode: 'HTML' }
+        );
+    } else {
+        bot.sendMessage(chatId, '❌ Gagal menyimpan email!', { parse_mode: 'HTML' });
+    }
+});
+
+bot.onText(/\/addapp(?:\s+(.+))?/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+    if (!isOwner(userId)) return bot.sendMessage(chatId, '❌ Khusus Owner!');
+
+    const newPassword = match[1] ? match[1].trim().replace(/\s/g, '') : null;
+
+    if (!newPassword) {
+        return bot.sendMessage(chatId, 
+            '❌ <b>Format:</b> <code>/addapp apppassword</code>\n\nContoh: <code>/addapp xxxx xxxx xxxx xxxx</code>', 
+            { parse_mode: 'HTML' }
+        );
+    }
+
+    if (newPassword.length < 10) {
+        return bot.sendMessage(chatId, '❌ Password terlalu pendek!', { parse_mode: 'HTML' });
+    }
+
+    log('info', 'Owner mengubah app password');
+
+    const success = configManager.updateEmailConfig(config.EMAIL_CONFIG.auth.user, newPassword);
+
+    if (success) {
+        config = configManager.config;
+        initializeEmail();
+
+        const testResult = await testEmailConfig();
+
+        if (testResult.success) {
+            bot.sendMessage(chatId,
+`✅ <b>App Password Berhasil Diubah!</b>
+
+🔑 Password: <code>${newPassword.substring(0, 4)}****${newPassword.substring(newPassword.length - 4)}</code>
+📧 Email: <code>${config.EMAIL_CONFIG.auth.user}</code>
+🔄 Status: 🟢 Connected
+
+💡 Gunakan /testemail untuk verifikasi`,
+                { parse_mode: 'HTML' }
+            );
+        } else {
+            bot.sendMessage(chatId,
+`⚠️ <b>PASSWORD DISIMPAN TAPI TEST GAGAL</b>
+
+Error: ${testResult.error}
+
+Periksa App Password dan 2FA setting di Gmail.`,
+                { parse_mode: 'HTML' }
+            );
+        }
+    } else {
+        bot.sendMessage(chatId, '❌ Gagal menyimpan password!', { parse_mode: 'HTML' });
+    }
+});
+
+// ================== EMAIL.JSON MANAGEMENT ==================
+
+// /addemail - Tambah email ke rotasi
+bot.onText(/\/addemail(?:\s+(.+))?/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+    if (!isOwner(userId)) return bot.sendMessage(chatId, '❌ Khusus Owner!');
+
+    const args = match[1] ? match[1].trim() : null;
+
+    if (!args) {
+        return bot.sendMessage(chatId, 
+`📖 <b>PANDUAN ADDEMAIL</b>
+━━━━━━━━━━━━━━━━━━━
+
+<b>Format:</b> <code>/addemail email password</code>
+
+<b>Contoh:</b>
+<code>/addemail test@gmail.com abcdefghijklmnop</code>
+
+⚠️ Password adalah App Password (16 karakter)`,
+            { parse_mode: 'HTML' }
+        );
+    }
+
+    const parts = args.split(/\s+/);
+    if (parts.length < 2) {
+        return bot.sendMessage(chatId, '❌ Format: <code>/addemail email password</code>', { parse_mode: 'HTML' });
+    }
+
+    const newEmail = parts[0];
+    const newPass = parts.slice(1).join('').replace(/\s/g, ''); // gabungkan jika ada spasi
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(newEmail)) {
+        return bot.sendMessage(chatId, '❌ Format email salah!', { parse_mode: 'HTML' });
+    }
+
+    if (newPass.length < 10) {
+        return bot.sendMessage(chatId, '❌ Password terlalu pendek! (min 10 karakter)', { parse_mode: 'HTML' });
+    }
+
+    // Cek duplikat
+    const exists = emailList.find(e => e.user === newEmail);
+    if (exists) {
+        return bot.sendMessage(chatId, `❌ Email <code>${newEmail}</code> sudah ada di list!`, { parse_mode: 'HTML' });
+    }
+
+    // Tambah ke list
+    emailList.push({ user: newEmail, pass: newPass });
+    saveEmails();
+    
+    log('info', `Email ditambahkan: ${newEmail}`);
+
+    bot.sendMessage(chatId,
+`✅ <b>EMAIL BERHASIL DITAMBAHKAN!</b>
+━━━━━━━━━━━━━━━━━━━━
+
+📧 Email: <code>${newEmail}</code>
+🔑 Pass: <code>${newPass.substring(0, 4)}****</code>
+📊 Total: ${emailList.length} email
+
+💡 Gunakan /testemail untuk verifikasi`,
+        { parse_mode: 'HTML' }
+    );
+});
+
+// /delemail - Hapus email dari rotasi
+bot.onText(/\/delemail(?:\s+(.+))?/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+    if (!isOwner(userId)) return bot.sendMessage(chatId, '❌ Khusus Owner!');
+
+    const emailToDelete = match[1] ? match[1].trim() : null;
+
+    if (!emailToDelete) {
+        return bot.sendMessage(chatId, 
+`📖 <b>PANDUAN DELEMAIL</b>
+━━━━━━━━━━━━━━━━━━━
+
+<b>Format:</b> <code>/delemail email@gmail.com</code>
+
+<b>Contoh:</b>
+<code>/delemail test@gmail.com</code>
+
+💡 Gunakan /listemails untuk lihat daftar`,
+            { parse_mode: 'HTML' }
+        );
+    }
+
+    const index = emailList.findIndex(e => e.user === emailToDelete);
+    if (index === -1) {
+        return bot.sendMessage(chatId, `❌ Email <code>${emailToDelete}</code> tidak ditemukan!`, { parse_mode: 'HTML' });
+    }
+
+    emailList.splice(index, 1);
+    saveEmails();
+    
+    log('info', `Email dihapus: ${emailToDelete}`);
+
+    bot.sendMessage(chatId,
+`✅ <b>EMAIL BERHASIL DIHAPUS!</b>
+━━━━━━━━━━━━━━━━━━━━
+
+🗑️ Dihapus: <code>${emailToDelete}</code>
+📊 Sisa: ${emailList.length} email`,
+        { parse_mode: 'HTML' }
+    );
+});
+
+// /listemails - Lihat semua email di rotasi
+bot.onText(/\/listemails/, (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+    if (!isOwner(userId)) return bot.sendMessage(chatId, '❌ Khusus Owner!');
+
+    if (emailList.length === 0) {
+        return bot.sendMessage(chatId, 
+`📧 <b>DAFTAR EMAIL</b>
+━━━━━━━━━━━━━━━━━━━
+
+❌ <i>Tidak ada email</i>
+
+💡 Gunakan /addemail untuk menambah`,
+            { parse_mode: 'HTML' }
+        );
+    }
+
+    // Check cooldown status for each email
+    const now = Date.now();
+    let emailListText = emailList.map((e, i) => {
+        const cooldownEnd = emailCooldowns.get(e.user) || 0;
+        const isOnCooldown = now < cooldownEnd;
+        const status = isOnCooldown ? '🔴' : '🟢';
+        return `${i + 1}. ${status} <code>${e.user}</code>`;
+    }).join('\n');
+
+    const available = emailList.filter(e => {
+        const cooldownEnd = emailCooldowns.get(e.user) || 0;
+        return now > cooldownEnd;
+    }).length;
+
+    bot.sendMessage(chatId,
+`📧 <b>DAFTAR EMAIL ROTASI</b>
+━━━━━━━━━━━━━━━━━━━━━
+
+${emailListText}
+
+━━━━━━━━━━━━━━━━━━━━━
+📊 Total: ${emailList.length} | 🟢 Ready: ${available}
+
+💡 <b>Command:</b>
+• /addemail - Tambah email
+• /delemail - Hapus email`,
+        { parse_mode: 'HTML' }
+    );
+});
+
+// ================== PREMIUM MANAGEMENT ==================
+
+bot.onText(/^\/addpremium(?:@\w+)?$/, (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+
+    if (!isOwner(userId)) return bot.sendMessage(chatId, '❌ Akses ditolak!', { parse_mode: 'HTML' });
+
+    bot.sendMessage(chatId, 
+`📖 <b>PANDUAN ADDPREMIUM</b>
+━━━━━━━━━━━━━━━━━━━
+
+<b>Format:</b> <code>/addpremium &lt;user_id&gt; &lt;hari&gt;</code>
+
+<b>Contoh:</b>
+• <code>/addpremium 123456789 30</code> → 30 hari
+• <code>/addpremium 123456789 7</code> → 7 hari
+
+💡 <b>Cara dapat User ID:</b>
+User bisa kirim /premium lalu lihat ID mereka`,
+        { parse_mode: 'HTML' }
+    );
+});
+
+bot.onText(/\/addpremium(?:@\w+)?\s+(\d+)\s+(\d+)/, (msg, match) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+
+    if (!isOwner(userId)) return bot.sendMessage(chatId, '❌ Akses ditolak!', { parse_mode: 'HTML' });
+
+    const targetId = parseInt(match[1]);
+    const days = parseInt(match[2]);
+
+    if (isNaN(targetId) || isNaN(days) || days <= 0) {
+        return bot.sendMessage(chatId, '❌ Format salah. Gunakan: <code>/addpremium &lt;id&gt; &lt;hari&gt;</code>', { parse_mode: 'HTML' });
+    }
+
+    const expired = addPremium(targetId, days);
+    const expiredDate = new Date(expired).toLocaleString('id-ID');
+
+    bot.sendMessage(chatId, 
+`✅ <b>Premium Ditambahkan!</b>
+━━━━━━━━━━━━━━━━━━━━━━━━
+
+👤 User ID: <code>${targetId}</code>
+📅 Hari: ${days}
+⏰ Expired: ${expiredDate}`,
+        { parse_mode: 'HTML' }
+    );
+});
+
+bot.onText(/^\/delpremium(?:@\w+)?$/, (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+
+    if (!isOwner(userId)) return bot.sendMessage(chatId, '❌ Akses ditolak!', { parse_mode: 'HTML' });
+
+    bot.sendMessage(chatId, 
+`📖 <b>PANDUAN DELPREMIUM</b>
+━━━━━━━━━━━━━━━━━━━━━━━━
+
+<b>Format:</b> <code>/delpremium &lt;user_id&gt;</code>
+
+<b>Contoh:</b>
+• <code>/delpremium 123456789</code>`,
+        { parse_mode: 'HTML' }
+    );
+});
+
+bot.onText(/\/delpremium(?:@\w+)?\s+(\d+)/, (msg, match) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+
+    if (!isOwner(userId)) return bot.sendMessage(chatId, '❌ Akses ditolak!', { parse_mode: 'HTML' });
+
+    const targetId = parseInt(match[1]);
+    if (isNaN(targetId)) {
+        return bot.sendMessage(chatId, '❌ Format salah. Gunakan: <code>/delpremium &lt;id&gt;</code>', { parse_mode: 'HTML' });
+    }
+
+    removePremium(targetId);
+
+    bot.sendMessage(chatId, 
+`✅ <b>Premium Dihapus!</b>
+━━━━━━━━━━━━━━━━━━━━━━━━
+
+👤 User ID: <code>${targetId}</code>`,
+        { parse_mode: 'HTML' }
+    );
+});
+
+bot.onText(/\/listpremium/, (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+
+    if (!isOwner(userId)) return bot.sendMessage(chatId, '❌ Akses ditolak!', { parse_mode: 'HTML' });
+
+    if (premiumUsers.length === 0) {
+        return bot.sendMessage(chatId, '📋 Belum ada user premium.');
+    }
+
+    let list = '';
+    premiumUsers.forEach((user, i) => {
+        const expDate = new Date(user.expired).toLocaleDateString('id-ID');
+        const isExpired = Date.now() > user.expired;
+        list += `${i+1}. <code>${user.id}</code> - ${expDate} ${isExpired ? '❌' : '✅'}\n`;
+    });
+
+    bot.sendMessage(chatId, 
+`📋 <b>Daftar Premium</b>
+━━━━━━━━━━━━━━━━━━━━━━━━
+
+${list}
+Total: <b>${premiumUsers.length}</b> users`,
+        { parse_mode: 'HTML' }
+    );
+});
+
+// ================== BOT SETTINGS ==================
+
+bot.onText(/\/grubonly (on|off)/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+    if (!isOwner(userId)) return bot.sendMessage(chatId, '❌ Akses ditolak!');
+
+    const mode = match[1] === 'on';
+    const success = configManager.updateConfig({ GRUP_ONLY: mode });
+
+    if (success) {
+        config = configManager.config;
+        const message = mode ? '🚫 <b>MODE GRUP ONLY AKTIF!</b>' : '🌐 <b>MODE BEBAS AKTIF!</b>';
+        log('info', `Grup only mode: ${mode}`);
+        bot.sendMessage(chatId, message, { parse_mode: 'HTML' });
+    }
+});
+
+bot.onText(/\/maintance(on|off)/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+    if (!isOwner(userId)) return bot.sendMessage(chatId, '❌ Akses ditolak!');
+
+    const mode = match[1] === 'on';
+    const success = configManager.updateConfig({ MAINTENANCE: mode });
+
+    if (success) {
+        config = configManager.config;
+        const message = mode ? '🔧 <b>MAINTENANCE MODE AKTIF!</b>' : '✅ <b>MAINTENANCE SELESAI!</b>';
+        log('info', `Maintenance mode: ${mode}`);
+        bot.sendMessage(chatId, message, { parse_mode: 'HTML' });
+    }
+});
+
+bot.onText(/\/broadcast(?:\s+(.+))?/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+    if (!isOwner(userId)) return bot.sendMessage(chatId, '❌ Akses ditolak!');
+
+    const message = match[1] ? match[1].trim() : null;
+
+    if (!message) {
+        return bot.sendMessage(chatId, '❌ <b>Format:</b> <code>/broadcast pesan</code>', { parse_mode: 'HTML' });
+    }
+
+    log('info', `Broadcasting message to ${allChats.size} chats`);
+    const result = await broadcastMessage(`📢 <b>BROADCAST</b>\n\n${message}`);
+    bot.sendMessage(chatId, `✅ Broadcast: ${result.sent}/${result.total} chats`, { parse_mode: 'HTML' });
+});
+
+// ================== OWNER MANAGEMENT ==================
+
+bot.onText(/\/addowner(?:@\w+)?(?:\s+(\d+))?/, (msg, match) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+
+    if (!isOwner(userId)) {
+        return bot.sendMessage(chatId, '❌ Akses ditolak!', { parse_mode: 'HTML' });
+    }
+
+    const targetId = match[1];
+
+    // Jika tidak ada argument, tampilkan panduan
+    if (!targetId) {
+        return bot.sendMessage(chatId, 
+`📖 <b>PANDUAN ADDOWNER</b>
+━━━━━━━━━━━━━━━━━━━
+
+<b>Format:</b> <code>/addowner &lt;user_id&gt;</code>
+
+<b>Contoh:</b>
+• <code>/addowner 123456789</code>
+
+💡 <b>Cara dapat User ID:</b>
+User bisa kirim /start lalu lihat ID mereka`,
+            { parse_mode: 'HTML' }
+        );
+    }
+
+    // Cek apakah sudah ada
+    if (config.ADDITIONAL_OWNERS.includes(targetId) || targetId === config.OWNER_ID) {
+        return bot.sendMessage(chatId, `⚠️ User <code>${targetId}</code> sudah menjadi owner!`, { parse_mode: 'HTML' });
+    }
+
+    // Tambahkan ke additional owners
+    const newOwners = [...config.ADDITIONAL_OWNERS, targetId];
+    const success = configManager.updateAdditionalOwners(newOwners);
+
+    if (success) {
+        config = configManager.config;
+        log('info', `Owner ditambahkan: ${targetId}`);
+        bot.sendMessage(chatId, 
+`✅ <b>Owner Ditambahkan!</b>
+━━━━━━━━━━━━━━━━━━━━━━━━
+
+👤 User ID: <code>${targetId}</code>
+👑 Status: Owner
+
+💡 User sekarang bisa mengakses:
+• /addgmail — Ubah Gmail
+• /addapp — Ubah App Password
+• /testemail — Test email
+• /addpremium — Manage premium`,
+            { parse_mode: 'HTML' }
+        );
+    } else {
+        bot.sendMessage(chatId, '❌ Gagal menambahkan owner!', { parse_mode: 'HTML' });
+    }
+});
+
+bot.onText(/\/delowner(?:@\w+)?(?:\s+(\d+))?/, (msg, match) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+
+    if (!isOwner(userId)) {
+        return bot.sendMessage(chatId, '❌ Akses ditolak!', { parse_mode: 'HTML' });
+    }
+
+    const targetId = match[1];
+
+    // Jika tidak ada argument, tampilkan panduan
+    if (!targetId) {
+        return bot.sendMessage(chatId, 
+`📖 <b>PANDUAN DELOWNER</b>
+━━━━━━━━━━━━━━━━━━━━━━━━
+
+<b>Format:</b> <code>/delowner &lt;user_id&gt;</code>
+
+<b>Contoh:</b>
+• <code>/delowner 123456789</code>`,
+            { parse_mode: 'HTML' }
+        );
+    }
+
+    // Cek apakah ada di list
+    if (!config.ADDITIONAL_OWNERS.includes(targetId)) {
+        return bot.sendMessage(chatId, `⚠️ User <code>${targetId}</code> bukan owner!`, { parse_mode: 'HTML' });
+    }
+
+    // Hapus dari additional owners
+    const newOwners = config.ADDITIONAL_OWNERS.filter(id => id !== targetId);
+    const success = configManager.updateAdditionalOwners(newOwners);
+
+    if (success) {
+        config = configManager.config;
+        log('info', `Owner dihapus: ${targetId}`);
+        bot.sendMessage(chatId, 
+`✅ <b>Owner Dihapus!</b>
+━━━━━━━━━━━━━━━━━━━━━━━━
+
+👤 User ID: <code>${targetId}</code>
+🚫 Status: Bukan owner lagi`,
+            { parse_mode: 'HTML' }
+        );
+    } else {
+        bot.sendMessage(chatId, '❌ Gagal menghapus owner!', { parse_mode: 'HTML' });
+    }
+});
+
+bot.onText(/\/listowner/, (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+
+    if (!isOwner(userId)) return bot.sendMessage(chatId, '❌ Akses ditolak!', { parse_mode: 'HTML' });
+
+    let list = `👑 <b>Main Owner:</b>\n• <code>${config.OWNER_ID}</code>\n\n`;
+    
+    if (config.ADDITIONAL_OWNERS.length > 0) {
+        list += `👥 <b>Additional Owners:</b>\n`;
+        config.ADDITIONAL_OWNERS.forEach((id, i) => {
+            list += `${i+1}. <code>${id}</code>\n`;
+        });
+    } else {
+        list += `👥 <b>Additional Owners:</b>\n<i>Tidak ada</i>`;
+    }
+
+    bot.sendMessage(chatId, 
+`📋 <b>Daftar Owner</b>
+━━━━━━━━━━━━━━━━━━━━━━━━
+
+${list}`,
+        { parse_mode: 'HTML' }
+    );
+});
+
+// ================== ERROR HANDLING ==================
+bot.on('error', (error) => log('error', `Bot Error: ${error.message}`));
+bot.on('polling_error', (error) => log('error', `Polling Error: ${error.message}`));
+
+// ================== START BOT ==================
+showBanner();
+
+log('info', 'Memulai FIXRED BOT...');
+log('debug', `Debug mode: ${DEBUG ? 'ENABLED' : 'DISABLED'}`);
+log('debug', `Owner ID: ${config.OWNER_ID}`);
+log('debug', `Cooldown: ${config.COOLDOWN_TIME}ms`);
+
+
+
+// Register commands untuk suggestion saat ketik /
+bot.setMyCommands([
+    { command: 'start', description: '🏠 Menu utama' },
+    { command: 'fixred', description: '🔧 Kirim banding WA (+62xxx)' },
+    { command: 'menu', description: '📋 Lihat menu' },
+    { command: 'stats', description: '📊 Lihat statistik bot' },
+    { command: 'help', description: '❓ Panduan penggunaan' },
+    { command: 'premium', description: '⭐ Cek status premium' },
+    { command: 'addpremium', description: '➕ Tambah premium (Owner)' },
+    { command: 'delpremium', description: '➖ Hapus premium (Owner)' },
+    { command: 'listpremium', description: '📋 List premium (Owner)' },
+    { command: 'owner', description: '👑 Menu owner' },
+    { command: 'testemail', description: '🔌 Test email (Owner)' },
+    { command: 'addgmail', description: '📧 Ganti email (Owner)' },
+    { command: 'addapp', description: '🔑 Ganti password (Owner)' },
+    { command: 'addowner', description: '👑 Tambah owner (Owner)' },
+    { command: 'delowner', description: '❌ Hapus owner (Owner)' },
+    { command: 'listowner', description: '📋 List owner (Owner)' }
+]).then(() => {
+    log('success', 'Commands berhasil didaftarkan ke Telegram');
+}).catch((err) => {
+    log('warn', `Gagal daftarkan commands: ${err.message}`);
+});
+
+console.log(`
+${style.green}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${style.reset}
+  ${style.bright}Bot Status: ONLINE${style.reset}
+  📧 Email: ${emailList.length > 0 ? `${style.green}Connected${style.reset}` : `${style.red}Disconnected${style.reset}`}
+  👑 Owner: ${config.OWNER_ID}
+  ⏱ Started: ${new Date().toLocaleString('id-ID')}
+${style.green}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${style.reset}
+`);
+
+log('success', 'Bot berhasil dijalankan!');

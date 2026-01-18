@@ -1,0 +1,197 @@
+/* Minimalist Monochrome Theme */
+:root {
+    --bg-app: #000000;
+    --bg-card: #0a0a0a;
+    --text-primary: #ffffff;
+    --text-secondary: #666666;
+    --border: #333333;
+    --accent: #ffffff;
+    --danger: #ff3333;
+    --success: #33ff33;
+    --radius: 0px; /* Sharp edges for pro feel */
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+    font-family: 'Gotham Pro', sans-serif; /* Clean modern font */
+    background-color: var(--bg-app);
+    color: var(--text-primary);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden; /* App-like feel */
+}
+
+.app-container {
+    width: 100%;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+}
+
+/* Header Minimal */
+.header {
+    padding: 15px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--bg-app);
+}
+
+.logo {
+    font-size: 1rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+}
+
+.logo-icon { display: none; } /* Remove emoji */
+
+.status-badge.system-online {
+    font-size: 0.7rem;
+    color: var(--success);
+    padding: 2px 8px;
+}
+
+/* Split Layout */
+.main-content {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+    margin: 12px;
+    border: 2px solid var(--border);
+    border-radius: 20px;
+}
+
+.bot-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr; /* Strict 2 columns */
+    grid-template-rows: 1fr; /* Force entries to respect container height */
+    width: 100%;
+    height: 100%;
+    gap: 0;
+}
+
+/* Integrated Terminal Layout */
+.bot-card {
+    background: var(--bg-app);
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0; /* Critical for scrolling inside grid item */
+    position: relative;
+    overflow: hidden; /* Ensure nothing spills out */
+}
+
+.bot-header-section {
+    padding: 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--bg-card);
+    border-bottom: 2px solid var(--border);
+    flex-shrink: 0; /* Prevent header from shrinking */
+}
+
+.bot-title h3 {
+    font-size: 1.2rem;
+    font-weight: 500;
+}
+
+.bot-status-badge {
+    font-size: 0.7rem;
+    padding: 4px 8px;
+    border: 1px solid;
+    text-transform: uppercase;
+    border-radius: 20px;
+}
+
+.bot-terminal-section {
+    flex: 1;
+    background: #000000;
+    padding: 15px;
+    overflow-y: auto;
+    font-family: 'Ubuntu', monospace;
+    font-size: 0.75rem; /* Slightly smaller for ASCII art */
+    line-height: 1.2; /* Tighter lines for ASCII art */
+    white-space: pre-wrap; /* Preserve spaces and newlines */
+    color: #23ffcf;
+    display: flex;
+    border: 1px solid var(--border);
+    flex-direction: column;
+    justify-content: flex-start; /* Fill from top */
+    min-height: 0; /* Important for flex child scrolling */
+}
+
+/* Ensure individual lines also preserve whitespace if needed */
+.terminal-line {
+    white-space: pre-wrap;
+    word-break: break-all; /* Prevent horizontal scroll just in case */
+}
+
+/* Hide scrollbar for cleaner look */
+/* Hide scrollbar for cleaner look */
+.bot-terminal-section::-webkit-scrollbar { width: 0px; display: none; }
+.bot-terminal-section { -ms-overflow-style: none; scrollbar-width: none; }
+
+.bot-controls-section {
+    padding: 20px;
+    display: flex;
+    gap: 10px;
+    flex-shrink: 0; /* Prevent controls from shrinking */
+    justify-content: center;
+    border-top: 2px solid var(--border);
+}
+
+
+.btn {
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: 1px;
+    border: 1px solid var(--border);
+    padding: 10px;
+    border-radius: 20px;
+}
+.btn:hover {
+    transition: all 0.5s ease;
+    transform: scale(1.05);
+}
+.btn.btn-stop {
+    background-color: var(--danger);
+    color: var(--text-primary);
+}
+.btn.btn-restart:active {
+    background-color: rgb(159, 158, 158);
+}
+
+
+/* Mobile Media Query */
+@media (max-width: 768px) {
+    .app-container {
+        height: 100dvh; /* Handle mobile address bar */
+    }
+
+    .main-content {
+        margin: 0;
+        border: none;
+        border-radius: 0;
+    }
+
+    .bot-grid {
+        grid-template-columns: 1fr;
+        grid-template-rows: 1fr 1fr; /* Stack vertically, each taking half height */
+    }
+
+    .bot-card {
+        border-right: none;
+        border-bottom: 2px solid var(--border);
+    }
+
+    .bot-card:last-child {
+        border-bottom: none;
+    }
+}
