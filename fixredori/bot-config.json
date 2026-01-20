@@ -1,7 +1,7 @@
 {
-  "TELEGRAM_BOT_TOKEN": "8452243063:AAFq-FDNoVw9NQhL-zrxaFZDxLx6kBC3Z9A",
+  "TELEGRAM_BOT_TOKEN": "8452243063:AAHghmCNyOu-9NdFTVQZBdYVd8RROX9Id3M",
   "MAILERSEND_CONFIG": {
-    "apiKey": "mlsn.567186c04aa5b46c59bfb5a1804f0ca4044a6afbd0eda5a456778f1803e5f227",
+    "apiKey": "mlsn.e715300b0788b347b57303ac661f2b26e1fd64b6dd4808d66dadf485efbd48b8",
     "fromEmail": "noreply@trial.mailersend.net",
     "fromName": "WhatsApp Appeal Bot"
   },
