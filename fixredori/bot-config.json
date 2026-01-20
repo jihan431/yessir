@@ -1,11 +1,9 @@
 {
   "TELEGRAM_BOT_TOKEN": "8452243063:AAFq-FDNoVw9NQhL-zrxaFZDxLx6kBC3Z9A",
-  "EMAIL_CONFIG": {
-    "service": "gmail",
-    "auth": {
-      "user": "bustinino280@gmail.com",
-      "pass": "ngjgwwyxoztcjcjk"
-    }
+  "MAILERSEND_CONFIG": {
+    "apiKey": "mlsn.567186c04aa5b46c59bfb5a1804f0ca4044a6afbd0eda5a456778f1803e5f227",
+    "fromEmail": "noreply@trial.mailersend.net",
+    "fromName": "WhatsApp Appeal Bot"
   },
   "SUPPORT_EMAIL": "support@support.whatsapp.com",
   "OWNER_ID": "6726423168",

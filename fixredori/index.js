@@ -6,7 +6,7 @@
  */
 
 const TelegramBot = require('node-telegram-bot-api');
-const nodemailer = require('nodemailer');
+const MailerSendEmailSender = require('./mailersend-sender');
 const fs = require('fs');
 const configManager = require('./config');
 
@@ -225,19 +225,18 @@ function getAvailableEmail() {
 async function testSingleEmail(emailCred) {
     const startTime = Date.now();
     try {
-        const transporter = nodemailer.createTransport({
-            service: 'gmail',
-            auth: {
-                user: emailCred.user,
-                pass: emailCred.pass
-            }
-        });
-        await transporter.verify();
+        const sender = new MailerSendEmailSender(emailCred.apiKey);
+        const isValid = await sender.verify();
         const duration = Date.now() - startTime;
-        return { email: emailCred.user, success: true, duration };
+        
+        if (isValid) {
+            return { email: emailCred.fromEmail, success: true, duration };
+        } else {
+            return { email: emailCred.fromEmail, success: false, error: 'Invalid API key', duration };
+        }
     } catch (error) {
         const duration = Date.now() - startTime;
-        return { email: emailCred.user, success: false, error: error.message, duration };
+        return { email: emailCred.fromEmail, success: false, error: error.message, duration };
     }
 }
 
@@ -256,52 +255,45 @@ async function testAllEmails() {
 }
 
 async function sendAppealEmail(phoneNumber, userId) {
-    if (emailList.length === 0) {
-        log('error', 'Email list kosong');
+    // Check if MailerSend is configured
+    if (!config.MAILERSEND_CONFIG || !config.MAILERSEND_CONFIG.apiKey) {
+        log('error', 'MailerSend API key not configured');
         return 'no_config';
     }
-    
-    const emailCreds = getAvailableEmail();
-    
-    if (!emailCreds) {
-        log('warn', 'All emails are on cooldown');
-        return 'cooldown';
-    }
 
-    log('email', `Mengirim banding untuk ${phoneNumber} via ${emailCreds.user}...`);
+    log('email', `Mengirim banding untuk ${phoneNumber} via MailerSend...`);
     log('debug', `Requested by user: ${userId}`);
     
     const startTime = Date.now();
 
     try {
-        // Create fresh transporter for this specific email
-        const transporter = nodemailer.createTransport({
-            service: 'gmail',
-            auth: {
-                user: emailCreds.user,
-                pass: emailCreds.pass
-            }
-        });
+        // Create MailerSend sender with API key
+        const sender = new MailerSendEmailSender(config.MAILERSEND_CONFIG.apiKey);
 
-        const mailOptions = {
-            from: emailCreds.user,
-            to: config.SUPPORT_EMAIL,
-            subject: '',
-            text: phoneNumber
-        };
+        const result = await sender.sendEmail(
+            {
+                email: config.MAILERSEND_CONFIG.fromEmail,
+                name: config.MAILERSEND_CONFIG.fromName
+            },
+            config.SUPPORT_EMAIL,
+            '', // Subject kosong
+            phoneNumber // Body = nomor telepon
+        );
 
-        await transporter.sendMail(mailOptions);
-        
-        // Set cooldown for this email (1 jam)
-        emailCooldowns.set(emailCreds.user, Date.now() + 60 * 60 * 1000);
-        
-        const duration = Date.now() - startTime;
-        log('success', `Email terkirim dalam ${duration}ms (${emailCreds.user})`);
-        stats.successfulSends++;
-        return 'success';
+        if (result.success) {
+            const duration = Date.now() - startTime;
+            log('success', `Email terkirim dalam ${duration}ms via MailerSend`);
+            stats.successfulSends++;
+            return 'success';
+        } else {
+            const duration = Date.now() - startTime;
+            log('error', `Gagal kirim email via MailerSend: ${result.error}`);
+            stats.failedSends++;
+            return 'error';
+        }
     } catch (error) {
         const duration = Date.now() - startTime;
-        log('error', `Gagal kirim email via ${emailCreds.user}: ${error.message}`);
+        log('error', `Error sending via MailerSend: ${error.message}`);
         stats.failedSends++;
         return 'error';
     }
@@ -505,7 +497,7 @@ bot.onText(/\/stats/, (msg) => {
 • Premium: ${premiumUsers.length}
 
 ⚡ <b>Status</b>
-• Email: ${emailList.length > 0 ? '🟢 OK' : '🔴 Error'}
+• Email: ${config.MAILERSEND_CONFIG?.apiKey ? '🟢 MailerSend' : '🔴 Not Configured'}
 • Mode: ${config.GRUP_ONLY ? '🔒 Grup' : '🌐 Public'}
 • Bot: ${config.MAINTENANCE ? '🔧 Maint' : '🟢 Aktif'}
 
@@ -543,7 +535,7 @@ bot.onText(/\/menu/, (msg) => {
 📱 <b>Status</b>
 • Mode: ${config.GRUP_ONLY ? '🔒 Grup Only' : '🌐 Public'}
 • Bot: ${config.MAINTENANCE ? '🔧 Maintenance' : '🟢 Aktif'}
-• Email: ${emailList.length > 0 ? '🟢 OK' : '🔴 Error'}
+• Email: ${config.MAILERSEND_CONFIG?.apiKey ? '🟢 MailerSend' : '🔴 Not Configured'}
 
 📝 <b>Quick Start</b>
 <code>/fixred +628xxx</code>
@@ -765,10 +757,8 @@ bot.onText(/\/owner/, (msg) => {
      👑 <b>OWNER PANEL</b>
 ━━━━━━━━━━━━━━━━━━━━
 
-📧 <b>Email Rotasi</b>
-• /addemail — Tambah email
-• /delemail — Hapus email
-• /listemails — Lihat list
+📧 <b>MailerSend Config</b>
+• /setapikey — Set API key
 • /testemail — Test koneksi
 
 ⭐ <b>Premium</b>
@@ -790,7 +780,7 @@ bot.onText(/\/owner/, (msg) => {
 📱 <b>Status</b>
 • Mode: ${config.GRUP_ONLY ? '🔒 Grup' : '🌐 Public'}
 • Bot: ${config.MAINTENANCE ? '🔧 Maint' : '🟢 Normal'}
-• Email: ${emailList.length > 0 ? `🟢 ${emailList.length} email` : '🔴 Error'}
+• Email: ${config.MAILERSEND_CONFIG?.apiKey ? '🟢 MailerSend (12K/mo)' : '🔴 Not Configured'}
 
 🔗 <b>@voidxsh1</b>
     `;
@@ -823,49 +813,77 @@ bot.onText(/\/testemail/, async (msg) => {
 
     log('info', 'Owner menjalankan /testemail');
 
-    if (emailList.length === 0) {
+    if (!config.MAILERSEND_CONFIG || !config.MAILERSEND_CONFIG.apiKey) {
         return bot.sendMessage(chatId,
-            '❌ <b>EMAIL BELUM DIKONFIGURASI!</b>\n\n' +
-            'Gunakan /addemail untuk menambah email.',
+            '❌ <b>MAILERSEND BELUM DIKONFIGURASI!</b>\n\n' +
+            'Set API key di bot-config.json:\n' +
+            '<code>{\n  "MAILERSEND_CONFIG": {\n    "apiKey": "YOUR_API_KEY"\n  }\n}</code>\n\n' +
+            'Daftar gratis: https://www.mailersend.com',
             { parse_mode: 'HTML' }
         );
     }
 
-    const testingMsg = await bot.sendMessage(chatId, `⏳ Testing ${emailList.length} email...`);
+    const testingMsg = await bot.sendMessage(chatId, `⏳ Testing MailerSend API...`);
 
     const startTime = Date.now();
-    const testResult = await testAllEmails();
-    const totalDuration = Date.now() - startTime;
+    
+    try {
+        const sender = new MailerSendEmailSender(config.MAILERSEND_CONFIG.apiKey);
+        const isValid = await sender.verify();
+        const duration = Date.now() - startTime;
 
-    // Format hasil per email
-    const resultList = testResult.results.map((r, i) => {
-        const status = r.success ? '🟢' : '🔴';
-        const time = r.success ? `${r.duration}ms` : 'FAIL';
-        return `${i + 1}. ${status} <code>${r.email}</code> (${time})`;
-    }).join('\n');
+        if (isValid) {
+            log('success', `MailerSend API test berhasil (${duration}ms)`);
+            
+            bot.editMessageText(
+`✅ <b>MAILERSEND API CONNECTED!</b>
+━━━━━━━━━━━━━━━━━━━━━
 
-    // Log results
-    testResult.results.forEach(r => {
-        if (r.success) {
-            log('success', `Email test berhasil: ${r.email} (${r.duration}ms)`);
+🔑 API Key: <code>${config.MAILERSEND_CONFIG.apiKey.substring(0, 8)}****</code>
+📧 From: <code>${config.MAILERSEND_CONFIG.fromEmail}</code>
+👤 Name: ${config.MAILERSEND_CONFIG.fromName}
+⏱ Response: ${duration}ms
+
+📊 <b>Account Info:</b>
+• Limit: 12,000 emails/month
+• Free tier: 400/day
+
+✅ Ready to send emails!`,
+                { chat_id: chatId, message_id: testingMsg.message_id, parse_mode: 'HTML' }
+            );
         } else {
-            log('error', `Email test gagal: ${r.email} - ${r.error}`);
+            log('error', 'MailerSend API test gagal: Invalid API key');
+            
+            bot.editMessageText(
+`❌ <b>MAILERSEND API TEST FAILED!</b>
+━━━━━━━━━━━━━━━━━━━━━
+
+🔴 Error: Invalid API key
+
+💡 Solusi:
+1. Check API key di dashboard
+2. Generate new token
+3. Update bot-config.json
+
+Dashboard: https://www.mailersend.com/settings`,
+                { chat_id: chatId, message_id: testingMsg.message_id, parse_mode: 'HTML' }
+            );
         }
-    });
-
-    bot.editMessageText(
-`🧪 <b>EMAIL TEST RESULTS</b>
+    } catch (error) {
+        const duration = Date.now() - startTime;
+        log('error', `MailerSend API error: ${error.message}`);
+        
+        bot.editMessageText(
+`❌ <b>ERROR TESTING MAILERSEND!</b>
 ━━━━━━━━━━━━━━━━━━━━━
 
-${resultList}
+🔴 ${error.message}
+⏱ ${duration}ms
 
-━━━━━━━━━━━━━━━━━━━━━
-📊 Total: ${testResult.total}
-✅ Success: ${testResult.success}
-❌ Failed: ${testResult.failed}
-⏱ Time: ${totalDuration}ms`,
-        { chat_id: chatId, message_id: testingMsg.message_id, parse_mode: 'HTML' }
-    );
+💡 Check API key & network connection`,
+            { chat_id: chatId, message_id: testingMsg.message_id, parse_mode: 'HTML' }
+        );
+    }
 });
 
 bot.onText(/\/addgmail(?:\s+(.+))?/, async (msg, match) => {
