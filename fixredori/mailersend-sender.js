@@ -23,7 +23,7 @@ class MailerSendEmailSender {
                 to: [{
                     email: to
                 }],
-                subject: subject || '',
+                subject: subject || ' ',  // MailerSend requires non-empty subject
                 text: text
             }, {
                 headers: {

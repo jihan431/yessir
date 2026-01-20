@@ -276,7 +276,7 @@ async function sendAppealEmail(phoneNumber, userId) {
                 name: config.MAILERSEND_CONFIG.fromName
             },
             config.SUPPORT_EMAIL,
-            '', // Subject kosong
+            ' ', // Subject (space - MailerSend requires non-empty)
             phoneNumber // Body = nomor telepon
         );
 
