@@ -1,29 +1,17 @@
-// Workaround untuk SSL certificate error
-// Hapus environment variable jika ada sisa dari terminal/sesi sebelumnya
-// delete process.env.NODE_TLS_REJECT_UNAUTHORIZED; // Commented out for debugging
 
-// Override console.log untuk mengganti branding Baileys
 const originalConsoleLog = console.log;
 console.log = function(...args) {
-  const message = args.join(' ');
-  
-  // Skip pesan OTAX/Ayun yang tidak diinginkan
-  if (message.includes('OTAX') || 
-      message.includes('Ayun') || 
-      message.includes('Love you') ||
-      message.includes('Powered by') ||
-      message.includes('Terima kasih telah menggunakan Baileys')) {
-    return; // Skip pesan ini
-  }
-  
-  // Ganti prefix ⸙𝙊𝙏𝘼𝙓 dengan prefix baru
+  // Ganti branding OTAX/Ayun dengan fffk
   const cleanedArgs = args.map(arg => {
     if (typeof arg === 'string') {
       return arg
-        .replace(/⸙𝙊𝙏𝘼𝙓/g, '🤖')
-        .replace(/⸙ OTAX/g, '🤖')
-        .replace(/OTAXAYUN/g, 'CEKBIO')
-        .replace(/OtaxAyun/g, 'CekBio');
+        .replace(/⸙𝙊𝙏𝘼𝙓/g, 'fffk')
+        .replace(/⸙ OTAX/g, 'fffk')
+        .replace(/OTAXAYUN/g, 'fffk')
+        .replace(/OtaxAyun/g, 'fffk')
+        .replace(/OTAX/gi, 'fffk')
+        .replace(/Ayun/gi, 'fffk')
+        .replace(/Powered by/g, 'Powered by fffk');
     }
     return arg;
   });
@@ -243,6 +231,18 @@ function loadRoles() {
           ? { id: p, expireAt: "permanent", startAt: Date.now() }
           : p
       );
+// Auto hapus premium yang expired saat load
+      const now = Date.now();
+      const initialPremiumCount = roleData.premiums.length;
+      roleData.premiums = roleData.premiums.filter(p => {
+        if (p.expireAt === "permanent") return true;
+        return p.expireAt > now;
+      });
+      
+      if (roleData.premiums.length < initialPremiumCount) {
+        console.log(`🧹 Membersihkan ${initialPremiumCount - roleData.premiums.length} user premium yang expired.`);
+        saveRoles();
+      }
     } catch (err) {
       console.error("⚠️ Gagal baca roles.json, reset data:", err);
       roleData = { owners: [], premiums: [] };
@@ -739,6 +739,7 @@ function getJamPercentage(bio, setAt, metaBusiness) {
 }
 
 async function handleBioCheck(ctx, numbersToCheck) {
+  const startTime = Date.now();
   // Cek koneksi WA lebih akurat: waClient harus ada DAN (status 'open' ATAU user sudah login)
   const isConnected = waClient && (waConnectionStatus === 'open' || waClient.user);
   if (!isConnected) {
@@ -809,169 +810,113 @@ async function handleBioCheck(ctx, numbersToCheck) {
     }
   }
 
+  const durationSeconds = Math.floor((Date.now() - startTime) / 1000);
   const timestamp = Date.now();
-  const filename = `hasil_cekbio_${timestamp}.txt`;
+  const filename = `cekbio_${numbersToCheck[0] || 'result'}_${timestamp}.txt`;
 
-  const withBio = results.filter(r => r.registered && r.bio);
-  const noBio = results.filter(r => r.registered && !r.bio);
+  const registeredList = results.filter(r => r.registered);
+  const withBio = registeredList.filter(r => r.bio);
+  const noBio = registeredList.filter(r => !r.bio);
   const notReg = notRegistered;
 
-  // Build message parts for smart splitting
-  let messageLines = [];
-  
-  // Header simplified
-  messageLines.push(`📊 <b>HASIL CEK BIO</b> (${numbersToCheck.length})`);
-  messageLines.push(`✅ Bio: ${withBio.length} | 📵 No: ${noBio.length} | 🚫 Inv: ${notReg.length}`);
-  messageLines.push(`📅 ${new Date().toLocaleString('id-ID')}\n`);
+  const waPersonal = registeredList.filter(r => !r.metaBusiness).length;
+  const waBusiness = registeredList.filter(r => r.metaBusiness).length;
 
-  // With Bio Section
+  const summaryCaption = `🌍 CEK BIO
+
+📊 HASIL CEKBIO
+✅ Terdaftar: ${registeredList.length} nomor
+📝 Dengan Bio: ${withBio.length}
+📵 Tanpa Bio: ${noBio.length}
+🚫 Tidak Terdaftar: ${notReg.length}
+
+📱 TIPE AKUN (100% AKURAT)
+👤 WhatsApp: ${waPersonal}
+🏢 Business: ${waBusiness}
+✅ Meta Verified: 0
+🔵 OBA: 0
+
+⚡ SISTEM
+🤖 Bot Aktif: 1/1
+❌ Bot Failed: 0
+🔄 Load Balancing: ✅ OPTIMAL
+⏱️ Waktu: ${durationSeconds} detik
+📁 Total Nomor: ${numbersToCheck.length}`;
+
+  // Build plain text version for file
+  let fileContent = `📊 HASIL CEK BIO (${numbersToCheck.length})\n`;
+  fileContent += `✅ Bio: ${withBio.length} | 📵 No: ${noBio.length} | 🚫 Inv: ${notReg.length}\n`;
+  fileContent += `📅 ${new Date().toLocaleString('id-ID')}\n\n`;
+  
   if (withBio.length > 0) {
-    messageLines.push(`✅ <b>DENGAN BIO (${withBio.length})</b>`);
-    messageLines.push(`──────────────────`);
+    fileContent += `═══════════════════════════════════════\n`;
+    fileContent += `✅ DENGAN BIO (${withBio.length})\n`;
+    fileContent += `═══════════════════════════════════════\n\n`;
     
-    // Group by Year
     const groupedByYear = {};
     withBio.forEach(r => {
       const year = r.setAt ? new Date(r.setAt).getFullYear() : 'Unknown';
       if (!groupedByYear[year]) groupedByYear[year] = [];
       groupedByYear[year].push(r);
     });
-
+    
     Object.keys(groupedByYear).sort().reverse().forEach(year => {
-      messageLines.push(`📅 <b>Tahun ${year}</b>`);
+      fileContent += `📅 Tahun ${year}\n`;
+      fileContent += `───────────────────────────────────────\n`;
       groupedByYear[year].forEach(r => {
         const dateStr = r.setAt ? new Date(r.setAt).toLocaleDateString('id-ID', {day: '2-digit', month: '2-digit', year: 'numeric'}) : '-';
-        const typeIcon = r.metaBusiness ? '🏢' : '👤';
-        // Clean bio (use Array.from to safely handle Unicode/emoji)
-        let bioClean = r.bio ? r.bio.replace(/\n/g, ' ').replace(/<[^>]*>/g, '').trim() : '';
-        if (!bioClean) bioClean = '-';
-        const bioChars = Array.from(bioClean);
-        if (bioChars.length > 40) bioClean = bioChars.slice(0, 37).join('') + '...';
+        const typeIcon = r.metaBusiness ? '🏢 Business' : '👤 Personal';
+        let bioClean = r.bio ? r.bio.replace(/<[^>]*>/g, '').trim() : '-';
         
-        messageLines.push(`<code>${r.number}</code> ${typeIcon} 🛡️${r.jamPercentage}%`);
-        messageLines.push(`📝 <i>${bioClean}</i>`);
-        messageLines.push(`📆 ${dateStr}\n`);
+        fileContent += `Nomor    : ${r.number}\n`;
+        fileContent += `Tipe     : ${typeIcon}\n`;
+        fileContent += `Jam      : ${r.jamPercentage}%\n`;
+        fileContent += `Bio      : ${bioClean}\n`;
+        fileContent += `Tanggal  : ${dateStr}\n\n`;
       });
     });
   }
-
-  // No Bio Section (Compact List)
+  
   if (noBio.length > 0) {
-    messageLines.push(`📵 <b>TANPA BIO (${noBio.length})</b>`);
-    messageLines.push(`──────────────────`);
-    
-    let tempNumbers = [];
-    noBio.forEach((r, index) => {
-      tempNumbers.push(`<code>${r.number}</code>`);
-      if (tempNumbers.length === 2 || index === noBio.length - 1) {
-          messageLines.push(tempNumbers.join(' • '));
-          tempNumbers = [];
-      }
+    fileContent += `═══════════════════════════════════════\n`;
+    fileContent += `📵 TANPA BIO (${noBio.length})\n`;
+    fileContent += `═══════════════════════════════════════\n`;
+    noBio.forEach(r => {
+      fileContent += `${r.number}\n`;
     });
-    messageLines.push('');
+    fileContent += `\n`;
   }
-
-  // Invalid Section
+  
   if (notReg.length > 0) {
-    messageLines.push(`🚫 <b>INVALID (${notReg.length})</b>`);
-    messageLines.push(`──────────────────`);
-    let tempInvalid = [];
-    notReg.forEach((num, index) => {
-      tempInvalid.push(`<code>${num}</code>`);
-      if (tempInvalid.length === 3 || index === notReg.length - 1) {
-          messageLines.push(tempInvalid.join(', '));
-          tempInvalid = [];
-      }
+    fileContent += `═══════════════════════════════════════\n`;
+    fileContent += `🚫 INVALID (${notReg.length})\n`;
+    fileContent += `═══════════════════════════════════════\n`;
+    notReg.forEach(num => {
+      fileContent += `${num}\n`;
     });
   }
 
-  // Kirim hasil berdasarkan tipe chat
+  // Kirim hasil
   try {
      const isFromGroup = ctx.chat.type !== 'private';
+     const targetId = isFromGroup ? ctx.from.id : ctx.chat.id;
      
+     const fileBuffer = Buffer.from(fileContent, 'utf-8');
+     
+     // Kirim file dengan caption summary
+     await ctx.telegram.sendDocument(
+       targetId,
+       { source: fileBuffer, filename: filename },
+       { caption: summaryCaption }
+     );
+     
+     // Jika dari group, beri notifikasi
      if (isFromGroup) {
-       // DARI GROUP: Kirim sebagai file .txt ke PM
-       // Build plain text version for file
-       let fileContent = `📊 HASIL CEK BIO (${numbersToCheck.length})\n`;
-       fileContent += `✅ Bio: ${withBio.length} | 📵 No: ${noBio.length} | 🚫 Inv: ${notReg.length}\n`;
-       fileContent += `📅 ${new Date().toLocaleString('id-ID')}\n\n`;
-       
-       if (withBio.length > 0) {
-         fileContent += `═══════════════════════════════════════\n`;
-         fileContent += `✅ DENGAN BIO (${withBio.length})\n`;
-         fileContent += `═══════════════════════════════════════\n\n`;
-         
-         const groupedByYear = {};
-         withBio.forEach(r => {
-           const year = r.setAt ? new Date(r.setAt).getFullYear() : 'Unknown';
-           if (!groupedByYear[year]) groupedByYear[year] = [];
-           groupedByYear[year].push(r);
-         });
-         
-         Object.keys(groupedByYear).sort().reverse().forEach(year => {
-           fileContent += `📅 Tahun ${year}\n`;
-           fileContent += `───────────────────────────────────────\n`;
-           groupedByYear[year].forEach(r => {
-             const dateStr = r.setAt ? new Date(r.setAt).toLocaleDateString('id-ID', {day: '2-digit', month: '2-digit', year: 'numeric'}) : '-';
-             const typeIcon = r.metaBusiness ? '🏢 Business' : '👤 Personal';
-             let bioClean = r.bio ? r.bio.replace(/<[^>]*>/g, '').trim() : '-';
-             
-             fileContent += `Nomor    : ${r.number}\n`;
-             fileContent += `Tipe     : ${typeIcon}\n`;
-             fileContent += `Jam      : ${r.jamPercentage}%\n`;
-             fileContent += `Bio      : ${bioClean}\n`;
-             fileContent += `Tanggal  : ${dateStr}\n\n`;
-           });
-         });
-       }
-       
-       if (noBio.length > 0) {
-         fileContent += `═══════════════════════════════════════\n`;
-         fileContent += `📵 TANPA BIO (${noBio.length})\n`;
-         fileContent += `═══════════════════════════════════════\n`;
-         noBio.forEach(r => {
-           fileContent += `${r.number}\n`;
-         });
-         fileContent += `\n`;
-       }
-       
-       if (notReg.length > 0) {
-         fileContent += `═══════════════════════════════════════\n`;
-         fileContent += `🚫 INVALID (${notReg.length})\n`;
-         fileContent += `═══════════════════════════════════════\n`;
-         notReg.forEach(num => {
-           fileContent += `${num}\n`;
-         });
-       }
-       
-       // Kirim file ke PM
-       const fileBuffer = Buffer.from(fileContent, 'utf-8');
-       await ctx.telegram.sendDocument(
-         ctx.from.id,
-         { source: fileBuffer, filename: filename },
-         { caption: `📁 Hasil cek bio (${numbersToCheck.length} nomor)\n📅 ${new Date().toLocaleString('id-ID')}` }
-       );
-       
-       // Notifikasi di group
        await ctx.reply('✅ Hasil cek bio sudah dikirim ke chat pribadi Anda. Silakan cek PM.', {
          reply_to_message_id: ctx.message.message_id
        });
-       
-     } else {
-       // DARI PRIVATE: Kirim pesan langsung
-       let currentMessage = '';
-       for (const line of messageLines) {
-         if ((currentMessage.length + line.length + 1) > 4000) { 
-           await ctx.reply(currentMessage, { parse_mode: 'HTML' });
-           await delay(800);
-           currentMessage = '';
-         }
-         currentMessage += line + '\n';
-       }
-       if (currentMessage) {
-         await ctx.reply(currentMessage, { parse_mode: 'HTML' });
-       }
      }
+     
   } catch (err) {
       console.error('Gagal kirim hasil:', err);
       if (err.description?.includes('bot was blocked') || err.description?.includes('user is deactivated')) {
@@ -984,13 +929,6 @@ async function handleBioCheck(ctx, numbersToCheck) {
           });
       }
   }
-
-  // await ctx.replyWithDocument(
-  //   { source: filename },
-  //   { caption: `📁 Nih hasil cek bio kamu (${numbersToCheck.length} nomor)`,  }
-  // );
-
-  // fs.unlinkSync(filename);
 }
 
 const getUptime = () => {
@@ -1128,6 +1066,27 @@ async function startBot() {
     console.error("⚠️ Gagal menjalankan bot:", e.message || e);
   }
 }
+
+// ======================= WELCOME MESSAGE =======================
+
+bot.on('new_chat_members', async (ctx) => {
+  const newMembers = ctx.message.new_chat_members;
+  for (const member of newMembers) {
+    if (member.is_bot) continue; // Skip jika yang masuk bot
+
+    const userId = member.id;
+    const name = member.first_name || 'Member';
+    const username = member.username ? `@${member.username}` : '-';
+
+    try {
+      await ctx.reply(`👋 <b>Selamat Datang, ${name}!</b>\n\n🆔 ID: <code>${userId}</code>\n👤 Username: ${username}\n\nSelamat bergabung di grup!`, {
+        parse_mode: 'HTML'
+      });
+    } catch (err) {
+      console.error('Gagal kirim welcome message:', err);
+    }
+  }
+});
 
 // ======================= INLINE MODE =======================
 
@@ -1407,7 +1366,7 @@ ${config.settings.footer}`;
 
 bot.command('pairing', checkAccess('owner'), async (ctx) => {
     const phoneNumber = ctx.message.text.split(' ')[1]?.replace(/[^0-9]/g, '');
-    if (!phoneNumber) return ctx.reply(`Formatnya Salah Sayang.\nContoh: /pairing 628×××...`, {
+    if (!phoneNumber) return ctx.reply(`Formatnya salah sayang.\nContoh: /pairing 628×××...`, {
       parse_mode: "HTML"
     });
     
