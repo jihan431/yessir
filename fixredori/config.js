@@ -4,10 +4,12 @@ const CONFIG_FILE = './bot-config.json';
 
 let config = {
     TELEGRAM_BOT_TOKEN: '8338772881:AAF4SSt_Jc9ljE1vQtlz-PlyWt36hQx7aAM',
-    MAILERSEND_CONFIG: {
-        apiKey: '', // MailerSend API Key (dari dashboard)
-        fromEmail: 'noreply@trial.mailersend.net', // Bisa pakai @trial.mailersend.net atau domain verified
-        fromName: 'WhatsApp Appeal Bot'
+    EMAIL_CONFIG: {
+        service: 'gmail',
+        auth: {
+            user: '', // Akan diisi dari bot-config.json
+            pass: ''  // Akan diisi dari bot-config.json
+        }
     },
     SUPPORT_EMAIL: 'support@support.whatsapp.com',
     OWNER_ID: '6726423168',
