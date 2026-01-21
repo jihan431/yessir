@@ -1046,8 +1046,12 @@ async function startBot() {
       console.log(chalk.yellow("⚠️ Bot Telegram sudah berjalan, skip launch ulang."));
     }
 
+    // Start WhatsApp di background (non-blocking) agar tidak bikin bot hang
     if (typeof startWhatsAppClient === "function") {
-      await startWhatsAppClient();
+      console.log(chalk.gray("🔌 Memulai WhatsApp client di background..."));
+      startWhatsAppClient().catch(err => {
+        console.error(chalk.red("❌ WhatsApp client error:"), err.message);
+      });
     }
 
     process.once("SIGINT", () => {
