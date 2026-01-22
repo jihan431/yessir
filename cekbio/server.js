@@ -479,224 +479,266 @@ async function startWhatsAppClient() {
     
     console.log("Mencoba memulai koneksi WhatsApp...");
 
-    const { state, saveCreds } = await useMultiFileAuthState(config.sessionName);
-    const { version } = await fetchLatestBaileysVersion();
+    try {
+        const { state, saveCreds } = await useMultiFileAuthState(config.sessionName);
+        const { version } = await fetchLatestBaileysVersion();
 
-    const connectionOptions = {
-        version,
-        keepAliveIntervalMs: 10000,
-        printQRInTerminal: false,
-        logger: pino({ level: 'silent' }),
-        auth: state,
-        browser: ["Ubuntu", "Chrome", "20.0.04"],
-        syncFullHistory: false,
-        connectTimeoutMs: 60000,
-        defaultQueryTimeoutMs: 0,
-        emitOwnEvents: true,
-        fireInitQueries: true,
-        generateHighQualityLinkPreview: false,
-        markOnlineOnConnect: false,
-        getMessage: async (key) => ({
-            conversation: '',
-        }),
-    };
+        const connectionOptions = {
+            version,
+            keepAliveIntervalMs: 10000,
+            printQRInTerminal: false,
+            logger: pino({ level: 'silent' }),
+            auth: state,
+            browser: ["Ubuntu", "Chrome", "20.0.04"],
+            syncFullHistory: false,
+            connectTimeoutMs: 60000,
+            defaultQueryTimeoutMs: 0,
+            emitOwnEvents: true,
+            fireInitQueries: true,
+            generateHighQualityLinkPreview: false,
+            markOnlineOnConnect: false,
+            getMessage: async (key) => ({
+                conversation: '',
+            }),
+        };
 
-    waClient = makeWASocket(connectionOptions);
+        waClient = makeWASocket(connectionOptions);
 
-    waClient.ev.on('creds.update', saveCreds);
-    store.bind(waClient.ev);
+        waClient.ev.on('creds.update', saveCreds);
+        store.bind(waClient.ev);
 
-    waClient.ev.on('connection.update', async (update) => {
-    const { connection, lastDisconnect, qr } = update;
-    
-    // Handle QR Code
-    if (qr) {
-      currentQR = qr;
-      justPaired = true; // Set flag bahwa sedang dalam proses pairing
-      console.log('📱 QR Code tersedia untuk pairing');
-      
-      // Jika ada yang request QR, kirim ke Telegram
-      if (qrRequesterId) {
-        try {
-          const QRCode = require('qrcode');
-          let qrBuffer;
+        waClient.ev.on('connection.update', async (update) => {
+        const { connection, lastDisconnect, qr } = update;
+        
+        // Handle QR Code
+        if (qr) {
+          currentQR = qr;
+          justPaired = true; // Set flag bahwa sedang dalam proses pairing
+          console.log('📱 QR Code tersedia untuk pairing');
           
-          // Coba PNG dulu (butuh canvas), jika gagal fallback ke SVG (untuk Termux)
-          try {
-            qrBuffer = await QRCode.toBuffer(qr, { 
-              type: 'png', 
-              width: 300,
-              margin: 2 
-            });
-          } catch (canvasErr) {
-            // Fallback ke SVG jika canvas tidak tersedia (Termux)
-            console.log('⚠️ Canvas tidak tersedia, menggunakan SVG...');
-            const svgString = await QRCode.toString(qr, { 
-              type: 'svg',
-              width: 300,
-              margin: 2 
-            });
-            qrBuffer = Buffer.from(svgString);
-          }
-          
-          // Kirim sebagai file (support PNG atau SVG)
-          const isPNG = qrBuffer[0] === 0x89 && qrBuffer[1] === 0x50; // PNG magic bytes
-          
-          if (isPNG) {
-            await bot.telegram.sendPhoto(qrRequesterId, { source: qrBuffer }, {
-              caption: `📱 QR CODE WHATSAPP\n\nScan QR ini di WhatsApp:\nPengaturan → Perangkat Tertaut → Tautkan Perangkat\n\n⏳ QR berlaku 60 detik!`,
+          // Jika ada yang request QR, kirim ke Telegram
+          if (qrRequesterId) {
+            try {
+              const QRCode = require('qrcode');
+              let qrBuffer;
               
-            });
-          } else {
-            // SVG: kirim sebagai document karena Telegram tidak support SVG sebagai photo
-            await bot.telegram.sendDocument(qrRequesterId, 
-              { source: qrBuffer, filename: 'qrcode.svg' }, 
-              {
-                caption: `📱 QR CODE WHATSAPP\n\nScan QR ini di WhatsApp:\nPengaturan → Perangkat Tertaut → Tautkan Perangkat\n\n⏳ QR berlaku 60 detik!\n\n💡 Buka file SVG ini untuk melihat QR code`,
-                
+              // Coba PNG dulu (butuh canvas), jika gagal fallback ke SVG (untuk Termux)
+              try {
+                qrBuffer = await QRCode.toBuffer(qr, { 
+                  type: 'png', 
+                  width: 300,
+                  margin: 2 
+                });
+              } catch (canvasErr) {
+                // Fallback ke SVG jika canvas tidak tersedia (Termux)
+                console.log('⚠️ Canvas tidak tersedia, menggunakan SVG...');
+                const svgString = await QRCode.toString(qr, { 
+                  type: 'svg',
+                  width: 300,
+                  margin: 2 
+                });
+                qrBuffer = Buffer.from(svgString);
               }
-            );
+              
+              // Kirim sebagai file (support PNG atau SVG)
+              const isPNG = qrBuffer[0] === 0x89 && qrBuffer[1] === 0x50; // PNG magic bytes
+              
+              if (isPNG) {
+                await bot.telegram.sendPhoto(qrRequesterId, { source: qrBuffer }, {
+                  caption: `📱 QR CODE WHATSAPP\n\nScan QR ini di WhatsApp:\nPengaturan → Perangkat Tertaut → Tautkan Perangkat\n\n⏳ QR berlaku 60 detik!`,
+                  
+                });
+              } else {
+                // SVG: kirim sebagai document karena Telegram tidak support SVG sebagai photo
+                await bot.telegram.sendDocument(qrRequesterId, 
+                  { source: qrBuffer, filename: 'qrcode.svg' }, 
+                  {
+                    caption: `📱 QR CODE WHATSAPP\n\nScan QR ini di WhatsApp:\nPengaturan → Perangkat Tertaut → Tautkan Perangkat\n\n⏳ QR berlaku 60 detik!\n\n💡 Buka file SVG ini untuk melihat QR code`,
+                    
+                  }
+                );
+              }
+              
+              console.log(`✅ QR Code dikirim ke ${qrRequesterId}`);
+            } catch (err) {
+              console.error('Gagal kirim QR:', err.message);
+            }
           }
-          
-          console.log(`✅ QR Code dikirim ke ${qrRequesterId}`);
-        } catch (err) {
-          console.error('Gagal kirim QR:', err.message);
         }
-      }
-    }
-    
-    if (connection) {
-        waConnectionStatus = connection;
-        console.log('Status koneksi WA:', connection);
-    }
-    
-    if (connection === 'open') {
-        isReconnecting = false;
-        reconnectAttempts = 0;
-        console.log(chalk.green.bold("WhatsApp Connected"));
         
-        // Jika baru saja pairing, tunggu credentials tersimpan
-        if (justPaired) {
-            console.log(chalk.yellow("⏳ Menyimpan credentials, tunggu sebentar..."));
-            await delay(3000); // Tunggu 3 detik agar creds tersimpan
-            justPaired = false;
-            console.log(chalk.green("✅ Credentials tersimpan!"));
+        if (connection) {
+            waConnectionStatus = connection;
+            console.log('Status koneksi WA:', connection);
+        }
+        
+        if (connection === 'open') {
+            isReconnecting = false;
+            reconnectAttempts = 0;
+            console.log(chalk.green.bold("✅ WhatsApp Connected"));
             
-            // Notifikasi ke Telegram
-            if (qrRequesterId) {
-                try {
-                    await bot.telegram.sendMessage(qrRequesterId, 
-                        `✅ WHATSAPP TERHUBUNG!\n\nBot sekarang sudah terhubung ke WhatsApp dan siap digunakan.`,
-                        {  }
-                    );
-                } catch (e) {}
+            // Jika baru saja pairing, tunggu credentials tersimpan
+            if (justPaired) {
+                console.log(chalk.yellow("⏳ Menyimpan credentials, tunggu sebentar..."));
+                await delay(3000); // Tunggu 3 detik agar creds tersimpan
+                justPaired = false;
+                console.log(chalk.green("✅ Credentials tersimpan!"));
+                
+                // Notifikasi ke Telegram
+                if (qrRequesterId) {
+                    try {
+                        await bot.telegram.sendMessage(qrRequesterId, 
+                            `✅ WHATSAPP TERHUBUNG!\n\nBot sekarang sudah terhubung ke WhatsApp dan siap digunakan.`,
+                            {  }
+                        );
+                    } catch (e) {}
+                }
             }
         }
-    }
 
-    if (connection === 'close') {
-        const statusCode = new Boom(lastDisconnect?.error)?.output?.statusCode;
-        const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
-        
-        console.log(chalk.red.bold("WhatsApp Disconnected"));
-        console.log('Disconnect reason:', statusCode);
-        
-        // Reset flag reconnecting agar bisa attempt reconnect lagi
-        // Kecuali kita sedang menunggu timeout retry di bawah (untuk 440/515)
-        // Tapi kita akan handle reset flag di dalam logika retry masing-masing jika perlu
-        // Atau biarkan false di sini dan set true saat startWhatsAppClient dipanggil lagi.
-        isReconnecting = false; 
-        
-        // Jika baru saja pairing dan langsung disconnect, kemungkinan normal behavior
-        if (justPaired) {
-            console.log(chalk.yellow("⏳ Post-pairing disconnect, waiting for auto-reconnect..."));
-            justPaired = false;
-            await delay(5000); 
-            startWhatsAppClient().catch(console.error);
-            return;
-        }
-        
-        // Khusus error 515 (Stream Error)
-        if (statusCode === 515) {
-            console.log(chalk.yellow("⚠️ Stream Error (515), waiting 10 seconds before reconnect..."));
-            reconnectAttempts++;
-            if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-                setTimeout(() => {
-                    startWhatsAppClient().catch(console.error);
-                }, 10000);
-            } else {
-                console.log(chalk.red.bold("Max reconnect attempts reached for error 515"));
-                waClient = null;
-            }
-            return;
-        }
-
-        // Khusus error 403 (Forbidden) - Session invalid/expired/banned
-        if (statusCode === 403) {
-            console.log(chalk.red.bold("❌ Error 403 (Forbidden) - Session tidak valid!"));
-            console.log(chalk.yellow("⚠️ Session akan dihapus, silakan pairing ulang dengan /pairing"));
-            waClient = null;
+        if (connection === 'close') {
+            const statusCode = new Boom(lastDisconnect?.error)?.output?.statusCode;
+            const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
             
-            // Hapus session lama
-            const sessionPath = path.join(__dirname, config.sessionName);
-            if (fs.existsSync(sessionPath)) {
-                fs.rmSync(sessionPath, { recursive: true, force: true });
-                console.log('🗑 Session dihapus karena error 403');
-            }
+            console.log(chalk.red.bold("❌ WhatsApp Disconnected"));
+            console.log('Disconnect reason:', statusCode);
             
-            // Notifikasi ke owner jika ada
-            if (qrRequesterId) {
-                try {
-                    await bot.telegram.sendMessage(qrRequesterId, 
-                        `❌ *WhatsApp Disconnected (403)*\n\nSession tidak valid atau sudah expired.\nSilakan hubungkan ulang dengan /pairing`,
-                        { parse_mode: 'Markdown' }
-                    );
-                } catch (e) {}
-            }
-            return; // Jangan reconnect, perlu pairing ulang
-        }
-
-        // Khusus error 440 (Conflict) - Biasanya karena WA aktif di tempat lain
-        if (statusCode === 440) {
-            console.log(chalk.yellow("⚠️ Conflict Error (440), reconnecting in 3s..."));
-            reconnectAttempts++;
-            if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-                setTimeout(() => {
-                    startWhatsAppClient().catch(console.error);
-                }, 3000); // 3 detik
-            } else {
-                console.log(chalk.red.bold("Max reconnect attempts reached."));
-                waClient = null;
-            }
-            return;
-        }
-        
-        // Error 428 (Precondition Required / Connection Closed) biasanya butuh reconnect juga
-        if (statusCode === 428) {
-             console.log(chalk.yellow("⚠️ Connection Closed (428), reconnecting..."));
-        }
-
-        if (shouldReconnect && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-            reconnectAttempts++;
-            const delayTime = Math.min(5000 * reconnectAttempts, 30000);
-            console.log(`Reconnect attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS} in ${delayTime/1000}s...`);
-            setTimeout(() => {
+            isReconnecting = false; 
+            
+            // Jika baru saja pairing dan langsung disconnect, kemungkinan normal behavior
+            if (justPaired) {
+                console.log(chalk.yellow("⏳ Post-pairing disconnect, waiting for auto-reconnect..."));
+                justPaired = false;
+                await delay(5000); 
                 startWhatsAppClient().catch(console.error);
-            }, delayTime);
-        } else if (statusCode === DisconnectReason.loggedOut) {
-            console.log(chalk.red.bold("Logged out dari WhatsApp. Session perlu di-reset."));
-            waClient = null;
-            const sessionPath = path.join(__dirname, config.sessionName);
-            if (fs.existsSync(sessionPath)) {
-                fs.rmSync(sessionPath, { recursive: true, force: true });
-                console.log('🗑 Session dihapus karena logged out');
+                return;
             }
-        } else {
-            console.log(chalk.red.bold("Tidak bisa menyambung ulang."));
-            waClient = null;
+            
+            // Khusus error 503 (Service Unavailable)
+            if (statusCode === 503) {
+                console.log(chalk.yellow("⚠️ Service Unavailable (503), akan reconnect otomatis..."));
+                reconnectAttempts++;
+                const backoffDelay = Math.min(5000 * reconnectAttempts, 30000);
+                console.log(`Reconnect attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS} in ${backoffDelay/1000}s...`);
+                
+                if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+                    setTimeout(() => {
+                        startWhatsAppClient().catch(console.error);
+                    }, backoffDelay);
+                } else {
+                    console.log(chalk.red("❌ Max reconnect attempts reached. Mereset counter, akan coba lagi..."));
+                    reconnectAttempts = 0;
+                    setTimeout(() => {
+                        startWhatsAppClient().catch(console.error);
+                    }, 60000); // Tunggu 1 menit sebelum retry
+                }
+                return;
+            }
+            
+            // Khusus error 515 (Stream Error)
+            if (statusCode === 515) {
+                console.log(chalk.yellow("⚠️ Stream Error (515), waiting 10 seconds before reconnect..."));
+                reconnectAttempts++;
+                if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+                    setTimeout(() => {
+                        startWhatsAppClient().catch(console.error);
+                    }, 10000);
+                } else {
+                    console.log(chalk.red.bold("Max reconnect attempts reached for error 515"));
+                    reconnectAttempts = 0;
+                    waClient = null;
+                    // Tetap coba lagi setelah delay
+                    setTimeout(() => {
+                        startWhatsAppClient().catch(console.error);
+                    }, 60000);
+                }
+                return;
+            }
+
+            // Khusus error 403 (Forbidden) - Session invalid/expired/banned
+            if (statusCode === 403) {
+                console.log(chalk.red.bold("❌ Error 403 (Forbidden) - Session tidak valid!"));
+                console.log(chalk.yellow("⚠️ Session akan dihapus, silakan pairing ulang dengan /pairing"));
+                waClient = null;
+                
+                // Hapus session lama
+                const sessionPath = path.join(__dirname, config.sessionName);
+                if (fs.existsSync(sessionPath)) {
+                    fs.rmSync(sessionPath, { recursive: true, force: true });
+                    console.log('🗑 Session dihapus karena error 403');
+                }
+                
+                // Notifikasi ke owner jika ada
+                if (qrRequesterId) {
+                    try {
+                        await bot.telegram.sendMessage(qrRequesterId, 
+                            `❌ *WhatsApp Disconnected (403)*\n\nSession tidak valid atau sudah expired.\nSilakan hubungkan ulang dengan /pairing`,
+                            { parse_mode: 'Markdown' }
+                        );
+                    } catch (e) {}
+                }
+                return; // Jangan reconnect, perlu pairing ulang
+            }
+
+            // Khusus error 440 (Conflict) - Biasanya karena WA aktif di tempat lain
+            if (statusCode === 440) {
+                console.log(chalk.yellow("⚠️ Conflict Error (440), reconnecting in 3s..."));
+                reconnectAttempts++;
+                if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+                    setTimeout(() => {
+                        startWhatsAppClient().catch(console.error);
+                    }, 3000); // 3 detik
+                } else {
+                    console.log(chalk.red.bold("Max reconnect attempts reached."));
+                    reconnectAttempts = 0;
+                    waClient = null;
+                    setTimeout(() => {
+                        startWhatsAppClient().catch(console.error);
+                    }, 60000);
+                }
+                return;
+            }
+            
+            // Error 428 (Precondition Required / Connection Closed) biasanya butuh reconnect juga
+            if (statusCode === 428) {
+                 console.log(chalk.yellow("⚠️ Connection Closed (428), reconnecting..."));
+            }
+
+            if (shouldReconnect && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+                reconnectAttempts++;
+                const delayTime = Math.min(5000 * reconnectAttempts, 30000);
+                console.log(`Reconnect attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS} in ${delayTime/1000}s...`);
+                setTimeout(() => {
+                    startWhatsAppClient().catch(console.error);
+                }, delayTime);
+            } else if (statusCode === DisconnectReason.loggedOut) {
+                console.log(chalk.red.bold("Logged out dari WhatsApp. Session perlu di-reset."));
+                waClient = null;
+                const sessionPath = path.join(__dirname, config.sessionName);
+                if (fs.existsSync(sessionPath)) {
+                    fs.rmSync(sessionPath, { recursive: true, force: true });
+                    console.log('🗑 Session dihapus karena logged out');
+                }
+            } else {
+                console.log(chalk.red.bold("Tidak bisa menyambung ulang. Akan coba lagi setelah 2 menit..."));
+                reconnectAttempts = 0;
+                waClient = null;
+                // Tetap coba reconnect setelah delay lebih lama
+                setTimeout(() => {
+                    startWhatsAppClient().catch(console.error);
+                }, 120000); // 2 menit
+            }
         }
+        });
+    } catch (error) {
+        console.error(chalk.red("❌ Error saat inisialisasi WhatsApp client:"), error.message);
+        isReconnecting = false;
+        
+        // Auto-retry after delay
+        setTimeout(() => {
+            console.log("🔄 Mencoba start ulang WhatsApp client...");
+            startWhatsAppClient().catch(console.error);
+        }, 10000); // Retry setelah 10 detik
     }
-    });
 }
 
 async function checkMetaBusiness(jid) {
@@ -1017,6 +1059,7 @@ async function startBot() {
         console.log(chalk.green(`Connection OK: @${me.username}`));
       } catch (err) {
         console.error(chalk.red("Connection failed:"), err.message);
+        throw new Error("Gagal terhubung ke Telegram API");
       }
 
       console.log(chalk.gray("Bot launch..."));
@@ -1026,32 +1069,24 @@ async function startBot() {
       } catch (e) {
         console.error("Warning: Failed to clear webhook:", e.message);
       }
+      
       await bot.launch();
       botLaunched = true;
       console.log(chalk.green("✅ Bot Telegram berhasil dijalankan!"));
       
-      /*
-      // Daftarkan commands ke Telegram agar muncul di menu "/"
-      await bot.telegram.setMyCommands([
-        { command: 'start', description: '🏠 Menu utama bot' },
-        { command: 'cekbio', description: '📱 Cek bio WhatsApp' },
-        { command: 'info', description: '📊 Info akun & referral' },
-        { command: 'cekid', description: '🆔 Cek ID Telegram' },
-        { command: 'tourl', description: '🔗 Konversi media ke URL' },
-      ]);
-      */
-      
-      console.log(chalk.green("✅ Commands berhasil didaftarkan ke Telegram!"));
     } else if (botLaunched) {
       console.log(chalk.yellow("⚠️ Bot Telegram sudah berjalan, skip launch ulang."));
     }
 
-    // Start WhatsApp di background (non-blocking) agar tidak bikin bot hang
+    // Start WhatsApp di background dengan timeout protection
     if (typeof startWhatsAppClient === "function") {
       console.log(chalk.gray("🔌 Memulai WhatsApp client di background..."));
-      startWhatsAppClient().catch(err => {
-        console.error(chalk.red("❌ WhatsApp client error:"), err.message);
-      });
+      // Gunakan setTimeout untuk non-blocking start
+      setTimeout(() => {
+        startWhatsAppClient().catch(err => {
+          console.error(chalk.red("❌ WhatsApp client error:"), err.message);
+        });
+      }, 1000); // Delay 1 detik agar Telegram bot sudah stabil
     }
 
     process.once("SIGINT", () => {
@@ -1068,6 +1103,7 @@ async function startBot() {
 
   } catch (e) {
     console.error("⚠️ Gagal menjalankan bot:", e.message || e);
+    throw e; // Re-throw untuk ditangani di level atas
   }
 }
 
@@ -2215,39 +2251,51 @@ setInterval(() => {
 // ======================= MAIN START =======================
 
 (async () => {
-    showBanner();
-    // autoBackup();
-    await startBot();
-    await syncReferralBonuses();
-    
-    // Daftarkan semua command ke Telegram supaya muncul di autocomplete
     try {
-      await bot.telegram.setMyCommands([
-        { command: 'start', description: '🏠 Menu utama bot' },
-        { command: 'info', description: '📊 Info akun & referral' },
-        { command: 'cekbio', description: '📱 Cek bio WhatsApp nomor' },
-        { command: 'cekid', description: '🪪 Buat ID Card Telegram' },
-        { command: 'tourl', description: '🔗 Upload file ke URL' },
-        { command: 'pairing', description: '🔌 Pairing WA dengan kode (Owner)' },
-        { command: 'pairingqr', description: '📱 Pairing WA dengan QR (Owner)' },
-        { command: 'clearsesi', description: '🗑️ Hapus sesi WA (Owner)' },
-        { command: 'broadcast', description: '📢 Broadcast ke semua user (Owner)' },
-        { command: 'totaluser', description: '👥 Total user terdaftar (Owner)' },
-        { command: 'listid', description: '📋 Daftar semua user ID (Owner)' },
-        { command: 'addprem', description: '⭐ Tambah user premium (Owner)' },
-        { command: 'delprem', description: '❌ Hapus user premium (Owner)' },
-        { command: 'listprem', description: '📜 Lihat list premium (Owner)' },
-        { command: 'addowner', description: '👑 Tambah owner (Owner)' },
-        { command: 'delowner', description: '🚫 Hapus owner (Owner)' },
-        { command: 'listowner', description: '📝 Lihat list owner (Owner)' },
-      ]);
-    } catch (err) {
-      console.error('⚠️ Gagal register commands:', err.message);
+        showBanner();
+        
+        // Start bot Telegram terlebih dahulu (prioritas utama)
+        console.log('🚀 Starting Telegram Bot...');
+        await startBot();
+        
+        // Sync referral bonuses setelah bot online
+        await syncReferralBonuses();
+        
+        // Daftarkan semua command ke Telegram supaya muncul di autocomplete
+        try {
+          await bot.telegram.setMyCommands([
+            { command: 'start', description: '🏠 Menu utama bot' },
+            { command: 'info', description: '📊 Info akun & referral' },
+            { command: 'cekbio', description: '📱 Cek bio WhatsApp nomor' },
+            { command: 'cekid', description: '🪪 Buat ID Card Telegram' },
+            { command: 'tourl', description: '🔗 Upload file ke URL' },
+            { command: 'pairing', description: '🔌 Pairing WA dengan kode (Owner)' },
+            { command: 'pairingqr', description: '📱 Pairing WA dengan QR (Owner)' },
+            { command: 'clearsesi', description: '🗑️ Hapus sesi WA (Owner)' },
+            { command: 'broadcast', description: '📢 Broadcast ke semua user (Owner)' },
+            { command: 'totaluser', description: '👥 Total user terdaftar (Owner)' },
+            { command: 'listid', description: '📋 Daftar semua user ID (Owner)' },
+            { command: 'addprem', description: '⭐ Tambah user premium (Owner)' },
+            { command: 'delprem', description: '❌ Hapus user premium (Owner)' },
+            { command: 'listprem', description: '📜 Lihat list premium (Owner)' },
+            { command: 'addowner', description: '👑 Tambah owner (Owner)' },
+            { command: 'delowner', description: '🚫 Hapus owner (Owner)' },
+            { command: 'listowner', description: '📝 Lihat list owner (Owner)' },
+          ]);
+          console.log('📋 Semua command sudah terdaftar di Telegram!');
+        } catch (err) {
+          console.error('⚠️ Gagal register commands:', err.message);
+        }
+        
+        console.log('✅ Bot Telegram siap digunakan!');
+        
+    } catch (error) {
+        console.error(chalk.red('❌ FATAL ERROR saat startup:'), error);
+        console.error('Stack:', error.stack);
+        console.error('⚠️ Bot akan tetap mencoba jalan meskipun ada error...');
     }
-    
-    console.log('✅ Bot Telegram siap digunakan!');
-    console.log('📋 Semua command sudah terdaftar di Telegram!');
 })();
 
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
+
