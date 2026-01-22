@@ -490,19 +490,29 @@ async function startWhatsAppClient() {
             logger: pino({ level: 'silent' }),
             auth: state,
             browser: ["Ubuntu", "Chrome", "20.0.04"],
-            syncFullHistory: false,
+            syncFullHistory: false, // Jangan sync semua history
             connectTimeoutMs: 60000,
             defaultQueryTimeoutMs: 0,
-            emitOwnEvents: true,
-            fireInitQueries: true,
+            emitOwnEvents: false, // Matikan untuk reduce overhead
+            fireInitQueries: false, // Jangan fire query saat start (penyebab timeout!)
             generateHighQualityLinkPreview: false,
             markOnlineOnConnect: false,
-            getMessage: async (key) => ({
-                conversation: '',
-            }),
+            // Batasi pesan yang diminta saat reconnect
+            getMessage: async (key) => {
+                return { conversation: '' };
+            },
+            // Tambahan: Batasi sync untuk mencegah timeout
+            shouldSyncHistoryMessage: () => false, // Jangan sync history message
+            patchMessageBeforeSending: (message) => message,
         };
 
-        waClient = makeWASocket(connectionOptions);
+        // Buat socket dengan timeout protection
+        waClient = await Promise.race([
+            makeWASocket(connectionOptions),
+            new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('WhatsApp socket creation timeout')), 60000)
+            )
+        ]);
 
         waClient.ev.on('creds.update', saveCreds);
         store.bind(waClient.ev);
